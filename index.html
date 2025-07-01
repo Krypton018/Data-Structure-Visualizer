@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Data Structure Visualizer</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Ubuntu:ital,wght@0,300;0,400;0,500;0,700;1,300;1,400;1,500;1,700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <div class="heading">
+            <h1>Data Structure Visualizer</h1>
+        </div>
+    </header>
+
+    <main>
+        <div class="data-box">
+            <div class="node-data">
+                <p>Nodes</p>
+                <textarea id="nodes-input" rows="4"></textarea>
+            </div>
+            
+            <div class="edge-data">
+                <p>Edges</p>
+                <textarea id="edges-input" rows="4"></textarea>
+            </div>
+        </div>
+
+        <div class="draw-area">
+            
+        </div>
+    </main>
+</body>
+
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="app.js"></script>
+</html>
