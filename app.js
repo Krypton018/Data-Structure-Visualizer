@@ -1,3 +1,27 @@
+// INPUT PART
+const editor = ace.edit("edges-input");
+editor.setTheme("ace/theme/monokai");
+editor.session.setMode("ace/mode/plain_text");
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// VISUALIZATION PART
 // --- Utitlity Functions --- (For Graph Generation)
 
 // Randomizing colors
