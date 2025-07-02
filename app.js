@@ -1,7 +1,120 @@
 // INPUT PART
-const editor = ace.edit("edges-input");
-editor.setTheme("ace/theme/monokai");
-editor.session.setMode("ace/mode/plain_text");
+// Notes Input
+const nodesEditor = ace.edit("nodes-input");
+nodesEditor.setTheme("ace/theme/monokai");
+nodesEditor.session.setMode("ace/mod/plain_text");
+
+// Edges Input
+const edgesEditor = ace.edit("edges-input");
+edgesEditor.setTheme("ace/theme/monokai");
+edgesEditor.session.setMode("ace/mode/plain_text");
+
+// Listeners for user input
+nodesEditor.session.on("change", handleEditorInput);
+edgesEditor.session.on("change", handleEditorInput);
+
+
+// Updating graph after 1 sec
+let inputTimeout;
+function handleEditorInput() {
+    clearTimeout(inputTimeout);   // Clear previous timer
+    inputTimeout = setTimeout(updateGraphFromInput, 1000);   // 1s delay
+}
+
+
+// Create graph from input
+function updateGraphFromInput() {
+    // NODES
+    // Clearing old markers (errors)
+    clearEditorMarkers(nodesEditor, nodeErrorMarkers);
+    
+    // Getting new data
+    const nodeText = nodesEditor.getValue();
+    
+    // Validating data
+    const {validNodes, errors} = validateNodes(nodeText);
+    
+    // Highlighting Error Lines
+    errors.forEach(error => {
+        console.log('Error on line:', error.line, nodesEditor.session.getLine(error.line));
+        const markerId = nodesEditor.session.addMarker(
+            new ace.Range(error.line, 0, error.line, 1),    // Start row, Start col, End row, End col
+            'ace_error-line',
+            'fullLine',
+            false     // false -> Render the marker behind the text
+        );
+        
+        // Saving all the error markers
+        nodeErrorMarkers.push(markerId);
+    });
+    
+    
+    // EDGES
+    // Clearing old markers (errors)
+    clearEditorMarkers(edgesEditor, nodeErrorMarkers);
+    
+    // Getting new data
+    const edgeText = edgesEditor.getValue();
+
+    // Validate
+
+    // Highlight
+    
+    
+    
+    console.log("Nodes:\n", nodeText);
+    console.log("Edges:\n", edgeText);
+    
+    
+    
+    // TODO: validate, parse, and render
+}
+
+// Store marker IDs to remove later
+let nodeErrorMarkers = [];
+function clearEditorMarkers(editor, markerIds) {
+    markerIds.forEach(id => editor.session.removeMarker(id));
+    markerIds.length = 0; // Clear the array in-place
+}
+
+
+// Validating node names
+function validateNodes(text) {
+    const lines = text.split('\n');          // Getting each node separately
+    const errors = [];                       // Keeping track of all errors
+    const nodeSet = new Set();               // For unique node names
+    const validRegex = /^[a-zA-Z0-9_]+$/;    // For valid node names
+    
+    
+    lines.forEach((rawLine, i) => {
+        const line = rawLine.trim();         // Remvoing empty spaces
+        
+        // Skip empty lines     
+        if (!line) return;     // (return -> skip execution for this current line)
+    
+        // Invalid name
+        if (!validRegex.test(line)) {
+            errors.push({ line: i, reason: 'Invalid node name' });
+        }
+        
+        // Duplicate name
+        else if (nodeSet.has(line)) {
+            errors.push({ line: i, reason: 'Duplicate node name' });
+        }
+        
+        // Add node to existing set
+        else {
+            nodeSet.add(line);
+        }
+    });
+    
+    // Returning valid and invalid input
+    return {
+        validNodes: [...nodeSet],     // Shallow copy of node set
+        errors,        // Array of errors (if any) {line: number, reason: string}
+    };
+}
+
 
 
 
