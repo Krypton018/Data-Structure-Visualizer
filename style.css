@@ -81,7 +81,6 @@ main {
 .ace-monokai .ace_gutter {
     background-color: #212636 !important;
 }
-
 /* Gutter background of current line */
 .ace-monokai .ace_gutter-active-line {
     background-color: #273044 !important;
@@ -91,7 +90,6 @@ main {
 .ace-monokai .ace_content {
     background-color: #181c24 !important;
 }
-
 /* Main text area background of current line*/
 .ace-monokai .ace_marker-layer .ace_active-line {
     background-color: #222733 !important;
@@ -104,11 +102,23 @@ main {
 
 /* Error Line Mark */
 .ace_error-line {
-  background-color: #2c0000 !important;  
+    position: absolute;
+    width: 100% !important;
+    background-color: rgba(255, 0, 0, 0.15) !important;
+    z-index: 5;
 }
-.ace-monokai .ace_marker-layer .ace_active-line {
-  background-color: transparent !important;
+/* .ace-monokai .ace_marker-layer .ace_active-line {
+    background-color: transparent !important;
 }
+*/
+.error-msg {
+    height: 1.2em;   /* Reserve space -> even if not visible */
+    color: #ff4d4f;
+    font-size: 0.823rem;
+    margin-top: 4px;
+    font-family: monospace;
+}
+
 
 
 /* Font Size */
@@ -141,8 +151,6 @@ main {
 .ace_editor ::-webkit-scrollbar-thumb:hover {
     background: #3a4257;
 }
-
-
 
 
 

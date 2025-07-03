@@ -1,88 +1,75 @@
 // INPUT PART
-// Notes Input
-const nodesEditor = ace.edit("nodes-input");
-nodesEditor.setTheme("ace/theme/monokai");
-nodesEditor.session.setMode("ace/mod/plain_text");
-
-// Edges Input
-const edgesEditor = ace.edit("edges-input");
-edgesEditor.setTheme("ace/theme/monokai");
-edgesEditor.session.setMode("ace/mode/plain_text");
-
-// Listeners for user input
-nodesEditor.session.on("change", handleEditorInput);
-edgesEditor.session.on("change", handleEditorInput);
-
-
-// Updating graph after 1 sec
-let inputTimeout;
-function handleEditorInput() {
-    clearTimeout(inputTimeout);   // Clear previous timer
-    inputTimeout = setTimeout(updateGraphFromInput, 1000);   // 1s delay
+// --- Utitlity Functions --- 
+// Parsing Data after 1 sec
+let inputNodeTimeout;
+function handleNodeInput() {
+    clearTimeout(inputNodeTimeout);      // Clear previous timeout
+    clearEditorMarkers(nodesEditor, nodeErrorMarkers);    // Clearing old node markers (errors)
+    nodesEditor.session.clearAnnotations();    // Clearing old gutter annotations
+    inputNodeTimeout = setTimeout(updateGraphFromInput, 500);    // Upadate graph after 1s delay
+}
+let inputEdgeTimeout;
+function handleEdgeInput() {
+    clearTimeout(inputEdgeTimeout);      // Clear previous timeout
+    clearEditorMarkers(edgesEditor, edgeErrorMarkers);    // Clearing old edge markers (errors)
+    edgesEditor.session.clearAnnotations();    // Clearing old gutter annotations
+    inputEdgeTimeout = setTimeout(updateGraphFromInput, 500);    // Upadate graph after 1s delay
 }
 
 
-// Create graph from input
-function updateGraphFromInput() {
-    // NODES
-    // Clearing old markers (errors)
-    clearEditorMarkers(nodesEditor, nodeErrorMarkers);
-    
-    // Getting new data
-    const nodeText = nodesEditor.getValue();
-    
-    // Validating data
-    const {validNodes, errors} = validateNodes(nodeText);
-    
-    // Highlighting Error Lines
+// ERROR HANDLING FUNCTIONS
+// Clearing all previous markers
+function clearEditorMarkers(editor, markerIds) {
+    markerIds.forEach(id => editor.session.removeMarker(id));
+    markerIds.length = 0; // Clear the array in-place
+}
+// Highlighting Error Lines
+function markEditorErrors(editor, errors, markerArray) {
+    // Clearing old markers
+    clearEditorMarkers(editor, markerArray);
+
     errors.forEach(error => {
-        console.log('Error on line:', error.line, nodesEditor.session.getLine(error.line));
-        const markerId = nodesEditor.session.addMarker(
-            new ace.Range(error.line, 0, error.line, 1),    // Start row, Start col, End row, End col
+        const lineLength = editor.session.getLine(error.line).length;      // Getting error line length
+        const markerId = editor.session.addMarker(                   // Adding marker to that line
+            new ace.Range(error.line, 0, error.line, lineLength),    // Start row, Start col, End row, End col
             'ace_error-line',
             'fullLine',
             false     // false -> Render the marker behind the text
         );
         
-        // Saving all the error markers
-        nodeErrorMarkers.push(markerId);
+        // Saving all error markers
+        markerArray.push(markerId);
     });
-    
-    
-    // EDGES
-    // Clearing old markers (errors)
-    clearEditorMarkers(edgesEditor, nodeErrorMarkers);
-    
-    // Getting new data
-    const edgeText = edgesEditor.getValue();
-
-    // Validate
-
-    // Highlight
-    
-    
-    
-    console.log("Nodes:\n", nodeText);
-    console.log("Edges:\n", edgeText);
-    
-    
-    
-    // TODO: validate, parse, and render
 }
-
-// Store marker IDs to remove later
-let nodeErrorMarkers = [];
-function clearEditorMarkers(editor, markerIds) {
-    markerIds.forEach(id => editor.session.removeMarker(id));
-    markerIds.length = 0; // Clear the array in-place
+// Error Line Gutter Caution sign
+function markEditorAnnotation(editor, errors) {
+    if (errors.length > 0) {
+        editor.session.setAnnotations([
+            {
+                row: errors[0].line,      // Line number (0-indexed)
+                column: 0,
+                text: errors[0].reason,   // Tooltip message
+                type: "warning"             
+            }
+        ]);
+    } else {
+        editor.session.clearAnnotations();
+    }
 }
-
-
-// Validating node names
+// Displaying Error 
+function setEditorErrorMessage(containerId, errors) {
+    const container = document.getElementById(containerId);
+    if (errors.length > 0) {
+        container.textContent = `⚠️ Line ${errors[0].line + 1}: ${errors[0].reason}`;
+    } else {
+        container.textContent = '';
+    }
+}
+// Validating node Names
 function validateNodes(text) {
     const lines = text.split('\n');          // Getting each node separately
-    const errors = [];                       // Keeping track of all errors
-    const nodeSet = new Set();               // For unique node names
+    const nodeErrors = [];                       // Keeping track of all errors
+    const nodeSet = new Set();               // Keeping track of all valid unique nodes
     const validRegex = /^[a-zA-Z0-9_]+$/;    // For valid node names
     
     
@@ -94,12 +81,12 @@ function validateNodes(text) {
     
         // Invalid name
         if (!validRegex.test(line)) {
-            errors.push({ line: i, reason: 'Invalid node name' });
+            nodeErrors.push({ line: i, reason: 'Invalid node name' });
         }
         
         // Duplicate name
         else if (nodeSet.has(line)) {
-            errors.push({ line: i, reason: 'Duplicate node name' });
+            nodeErrors.push({ line: i, reason: 'Duplicate node name' });
         }
         
         // Add node to existing set
@@ -111,9 +98,222 @@ function validateNodes(text) {
     // Returning valid and invalid input
     return {
         validNodes: [...nodeSet],     // Shallow copy of node set
-        errors,        // Array of errors (if any) {line: number, reason: string}
+        nodeErrors,        // Array of errors (if any) {line: number, reason: string}
     };
 }
+// Validating Edge Names
+function validateEdges(text, validNodes) {
+    const lines = text.split('\n');          // Getting each edge separately
+    const edgeErrors = [];                       // Keeping track of all errors
+    const edges = [];                        // Keeping track of all edges
+    const validRegex = /^[a-zA-Z0-9_]+$/;    // For valid edge names
+
+    lines.forEach((rawLine, i) => {
+        const line = rawLine.trim();          // Remove empty space
+
+        // Skip empty line
+        if (!line) return;
+
+        // Separating source and target
+        const parts = line.split(/\s+/);
+
+        // Must be exactly 2 values
+        if (parts.length !== 2) {
+            edgeErrors.push({ line: i, reason: 'Edge must have exactly 2 nodes' });
+            return;
+        }
+
+        const [u, v] = parts;
+
+        // Check valid names
+        if (!validRegex.test(u) || !validRegex.test(v)) {
+            edgeErrors.push({ line: i, reason: 'Invalid node name in edge' });
+            return;
+        }
+
+        // Check that both nodes exist
+        else if (!validNodes.includes(u) || !validNodes.includes(v)) {
+            edgeErrors.push({ line: i, reason: 'Node in edge does not exist' });
+            return;
+        }
+
+        // Add valid edge to edges
+        else {
+            edges.push([u, v]); 
+        } 
+    });
+
+    return {
+        validEdges: edges,    // Valid edges
+        edgeErrors            // Array of errors (if any) {line: number, reason: string}
+    };
+}
+
+
+// PARSE HANDLING FUNCTIONS
+// Building adjacency list for grouping nodes
+function buildAdjacencyList(validNodes, validEdges) {
+    const graph = {};
+
+    // Initialize empty neighbor list for all nodes
+    validNodes.forEach(node => {
+        graph[node] = [];
+    });
+
+    // Fill neighbors from validEdges
+    validEdges.forEach(([u, v]) => {
+        graph[u].push(v);
+        graph[v].push(u);  // Undirected graph
+    });
+
+    return graph;
+}
+// Assigning groups to each node
+function assignGroups(validNodes, graph) {
+    const visited = new Set();
+    const result = [];
+    let groupCounter = 1;
+
+    // BFS Traversal
+    for (const node of validNodes) {
+        if (!visited.has(node)) {
+            const queue = [node];
+            visited.add(node);
+
+            while (queue.length > 0) {
+                const current = queue.shift();
+                result.push({ id: current, group: `G${groupCounter}` });
+
+                for (const neighbor of graph[current]) {
+                    if (!visited.has(neighbor)) {
+                        visited.add(neighbor);
+                        queue.push(neighbor);
+                    }
+                }
+            }
+
+            groupCounter++;
+        }
+    }
+
+    return result;
+}
+// Formatting Edges
+function formatEdges(validEdges) {
+    return validEdges.map(([source, target]) => ({
+        source,
+        target,
+        value: 1
+    }));
+}
+
+
+
+// Updation Function -> Update graph from input
+function updateGraphFromInput(shouldZoom = false) {
+    // NODES
+    // Fetching new data
+    const nodeText = nodesEditor.getValue();
+    // Validating data
+    const {validNodes, nodeErrors} = validateNodes(nodeText);
+
+    // ERROR HANDLING
+    // Highlighting Error Lines
+    markEditorErrors(nodesEditor, nodeErrors, nodeErrorMarkers);
+    // Add Gutter Symbol
+    markEditorAnnotation(nodesEditor, nodeErrors);
+    // Display Error
+    setEditorErrorMessage("nodes-error-msg", nodeErrors);
+
+
+    
+    
+    // EDGES
+    // Fetching new data
+    const edgeText = edgesEditor.getValue();
+    // Validating data
+    const {validEdges, edgeErrors} = validateEdges(edgeText, validNodes);
+
+    // ERROR HANDLING
+    // Highlighting Error Lines
+    markEditorErrors(edgesEditor, edgeErrors, edgeErrorMarkers);
+    // Add Gutter Symbol
+    markEditorAnnotation(edgesEditor, edgeErrors);
+    // Display Error
+    setEditorErrorMessage("edges-error-msg", edgeErrors);
+
+
+    // PARSING
+    // Creating adjacency list from input
+    const graph = buildAdjacencyList(validNodes, validEdges);
+    // Grouping and formatting nodes
+    const groupedNodes = assignGroups(validNodes, graph);
+    // Formatting edges
+    const links = formatEdges(validEdges);
+    // Formatting Graph Data
+    const graphData = {
+        nodes: groupedNodes,
+        links: links
+    };
+
+
+    // Render    
+    renderGraph(graphData, shouldZoom);
+    // d3.json("graph.json").then(function(data) {
+    //     renderGraph(data);
+    // });
+
+    
+    
+    
+    
+    
+
+}
+
+
+// Input Editors
+// Notes Input
+const nodesEditor = ace.edit("nodes-input");
+nodesEditor.setTheme("ace/theme/monokai");
+nodesEditor.session.setMode("ace/mod/plain_text");
+
+// Edges Input
+const edgesEditor = ace.edit("edges-input");
+edgesEditor.setTheme("ace/theme/monokai");
+edgesEditor.session.setMode("ace/mode/plain_text");
+
+// Listeners for user input
+nodesEditor.session.on("change", handleNodeInput);
+edgesEditor.session.on("change", handleEdgeInput);
+
+// Store marker IDs to remove later, etc
+let nodeErrorMarkers = [];
+let edgeErrorMarkers = [];
+
+// Load default graph from graph.json
+d3.json("graph.json").then((data) => {
+    // Extract node
+    const nodeText = data.nodes.map(d => d.id).join('\n');
+    // Extract edges
+    const edgeText = data.links.map(d => `${d.source} ${d.target}`).join('\n');
+
+    // Detach input handlers
+    nodesEditor.session.off("change", handleNodeInput);
+    edgesEditor.session.off("change", handleEdgeInput);
+
+    // Set initial values from graph.json 
+    nodesEditor.setValue(nodeText, -1);
+    edgesEditor.setValue(edgeText, -1);
+
+    // Manually render once
+    updateGraphFromInput(true);   // true -> zoom on first load
+
+    // Reattach handlers for user input
+    nodesEditor.session.on("change", handleNodeInput);
+    edgesEditor.session.on("change", handleEdgeInput);
+
+});
 
 
 
@@ -280,8 +480,9 @@ function zoomToFit(svg, nodes, width, height, zoom) {
 
 
 
-// GRAPH
-d3.json("graph.json").then(function(data) {
+// GRAPH Rendering
+function renderGraph (data, shouldZoom) {
+
     // Dimensions -> Virtual Drawing Area for the Graph (viewBox)
     const width = 928;
     const height = 680;
@@ -410,7 +611,7 @@ d3.json("graph.json").then(function(data) {
 
         
         // Wait for 20 ticks and them zoom in to fit to scale
-        if (!hasZoomed && ++tickCount === 20) {
+        if (shouldZoom && !hasZoomed && ++tickCount === 20) {
             hasZoomed = true;
             zoomToFit(svg, nodes, width, height, zoom);
             
@@ -448,4 +649,4 @@ d3.json("graph.json").then(function(data) {
     
 
     
-});
+};
