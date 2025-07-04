@@ -168,36 +168,61 @@ function buildAdjacencyList(validNodes, validEdges) {
 
     return graph;
 }
-// Assigning groups to each node
+// Assigning groups to each node  (IMPLETED VIA)
 function assignGroups(validNodes, graph) {
-    const visited = new Set();
-    const result = [];
-    let groupCounter = 1;
+    const parent = {};
+    const size = {};
 
-    // BFS Traversal
-    for (const node of validNodes) {
-        if (!visited.has(node)) {
-            const queue = [node];
-            visited.add(node);
+    // Initially, each node is its own group
+    validNodes.forEach(node => {
+        parent[node] = node;
+        size[node] = 1;
+    });
 
-            while (queue.length > 0) {
-                const current = queue.shift();
-                result.push({ id: current, group: `G${groupCounter}` });
+    // Finding parent for DSU
+    function find(u) {
+        if (parent[u] !== u) parent[u] = find(parent[u]);
+        return parent[u];
+    }
 
-                for (const neighbor of graph[current]) {
-                    if (!visited.has(neighbor)) {
-                        visited.add(neighbor);
-                        queue.push(neighbor);
-                    }
-                }
-            }
+    // Union for DSU
+    function union(u, v) {
+        const pu = find(u);
+        const pv = find(v);
 
-            groupCounter++;
+        if (pu === pv) return;
+
+        // Union by size (keep larger as parent)
+        if (size[pu] < size[pv]) {
+            parent[pu] = pv;
+            size[pv] += size[pu];
+        } else {
+            parent[pv] = pu;
+            size[pu] += size[pv];
         }
     }
 
+    // Union all edges
+    for (const u of validNodes) {
+        for (const v of graph[u]) {
+            union(u, v);
+        }
+    }
+
+    // Assign final groups using root ID (stable grouping)
+    const result = validNodes.map(node => {
+        return {
+            id: node,
+            group: find(node)   // group is now the root ID (The root in the DSU component)
+        };
+    });
+
+
     return result;
 }
+
+
+
 // Formatting Edges
 function formatEdges(validEdges) {
     return validEdges.map(([source, target]) => ({
@@ -205,6 +230,36 @@ function formatEdges(validEdges) {
         target,
         value: 1
     }));
+}
+
+
+function isGraphStructureChanged(newNodes, newLinks) {
+    const oldNodeIds = new Set(graphState.currentNodes.map(d => d.id));
+    const newNodeIds = new Set(newNodes.map(d => d.id));
+
+    // Check if nodes have changed (added or removed)
+    if (oldNodeIds.size !== newNodeIds.size || [...newNodeIds].some(id => !oldNodeIds.has(id))) {
+        return true;
+    }
+
+    const oldEdges = new Set(
+        graphState.currentLinks.map(d => {
+            const u = d.source.id || d.source;
+            const v = d.target.id || d.target;
+            return [u, v].sort().join("-");
+        })
+    );
+
+    const newEdges = new Set(
+        newLinks.map(d => [d.source, d.target].sort().join("-"))
+    );
+
+    // Check if edges have changed
+    if (oldEdges.size !== newEdges.size || [...newEdges].some(e => !oldEdges.has(e))) {
+        return true;
+    }
+
+    return false;
 }
 
 
@@ -256,12 +311,43 @@ function updateGraphFromInput(shouldZoom = false) {
         links: links
     };
 
+    // Assigning color to new groups
+    const allGroups = [...new Set(groupedNodes.map(d => d.group))];
 
-    // Render    
-    renderGraph(graphData, shouldZoom);
-    // d3.json("graph.json").then(function(data) {
-    //     renderGraph(data);
-    // });
+    allGroups.forEach(group => {
+        if (!(group in groupColorMap)) {
+            groupColorMap[group] = myColors[colorIndexCounter % myColors.length];
+            colorIndexCounter++;
+        }
+    });
+
+    // Map group ID -> Display Group Number (1-based index)
+    let groupDisplayMap = {};
+    allGroups.forEach((group, index) => {
+        groupDisplayMap[group] = index + 1;
+    });
+
+
+    // Remove colors for groups no longer used
+    Object.keys(groupColorMap).forEach(group => {
+        if (!allGroups.includes(group)) {
+            delete groupColorMap[group];
+        }
+    });
+
+
+
+
+
+    // Render
+    // const shouldZoom = isGraphStructureChanged(graphData.nodes, graphData.links);
+    if (graphState.currentNodes.length > 0 && graphState.currentLinks.length > 0) {
+        shouldZoom = isGraphStructureChanged(graphData.nodes, graphData.links);
+    }
+
+    renderGraph(graphData, shouldZoom, groupDisplayMap);
+
+
 
     
     
@@ -291,6 +377,9 @@ edgesEditor.session.on("change", handleEdgeInput);
 let nodeErrorMarkers = [];
 let edgeErrorMarkers = [];
 
+let myColors = [];
+let groupColorMap = {};
+let colorIndexCounter = 0;
 // Load default graph from graph.json
 d3.json("graph.json").then((data) => {
     // Extract node
@@ -305,6 +394,18 @@ d3.json("graph.json").then((data) => {
     // Set initial values from graph.json 
     nodesEditor.setValue(nodeText, -1);
     edgesEditor.setValue(edgeText, -1);
+
+    // Initially randomizing node color
+    myColors = shuffle([
+        "#ff006e", "#ffb703", "#036666", "#6f1d1b", "#5a189a",
+        "#00b4d8", "#ff7f51", "#ffb3c6", "#250902", "#ef233c", "#192bc2"
+    ]);
+
+    const groups = [...new Set(data.nodes.map(d => d.group))];  // Unique group names
+    groupColorMap = {};
+    groups.forEach((group, index) => {
+        groupColorMap[group] = myColors[index % myColors.length];
+    });
 
     // Manually render once
     updateGraphFromInput(true);   // true -> zoom on first load
@@ -347,7 +448,7 @@ function shuffle(array) {
 }
 
 // Tooltip animation
-function addTooltipBehavior(selection, color, tooltip) {
+function addTooltipBehavior(selection, color, tooltip, groupDisplayMap) {
     let tooltipTimeout;
 
     selection
@@ -363,7 +464,7 @@ function addTooltipBehavior(selection, color, tooltip) {
                             <span style="display:inline-block; width:16px; height:16px; border-radius:50%; background:${color(d.group)}; border:2px solid #fff;"></span>
                             <div>
                                 <div style="font-size:16px;">Node: ${d.id}</div>
-                                <div style="color:#46f293;">Group: ${d.group}</div>
+                                <div style="color:#46f293;">Group: ${groupDisplayMap[d.group]}</div>
                             </div>
                         </div>
                     `)
@@ -427,17 +528,27 @@ function dragended(event, simulation) {
 }
 
 
+// Finding the smallest rectangle that fits all the nodes
+function getGraphBoundingBox(nodes) {
+    const xs = nodes.map(d => d.x);
+    const ys = nodes.map(d => d.y);
+
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+
+    return { minX, maxX, minY, maxY };
+}
+
+
 // ZOOM function
 // Find the smallest box that contains all nodes
 // and zoom in/out to fit to that
 function zoomToFit(svg, nodes, width, height, zoom) {
     // Getting node positions and top-left, bottom-right boundaries
-    const xs = nodes.map(d => d.x);
-    const ys = nodes.map(d => d.y);
-    const minX = Math.min(...xs);
-    const maxX = Math.max(...xs);
-    const minY = Math.min(...ys);
-    const maxY = Math.max(...ys);
+    const { minX, maxX, minY, maxY } = getGraphBoundingBox(nodes);
+
     
     // Node padding
     const padding = 20;
@@ -478,10 +589,58 @@ function zoomToFit(svg, nodes, width, height, zoom) {
         );
 }
 
+let graphState = {
+  svg: null,                  // Main Container
+  container: null,            // Holds all the elements
+  simulation: null,           // Runs Force Layout
+  zoom: null,                 // Pan/Zoom Behaviour
+  nodeSelection: null,        // Nodes in SVG
+  linkSelection: null,        // Links in SVG
+  labelSelection: null,       // Edges in SVG
+  currentNodes: [],           // Internal Data of Nodes
+  currentLinks: [],           // Internal Data of Links
+};
+
+
+function setupGraphCanvas(width, height) {
+  if (graphState.svg) return;  // Already created
+
+  const svg = d3.select(".draw-area")
+    .append("svg")
+    .attr("id", "graph-svg")
+    .attr("viewBox", [-width / 2, -height / 2, width, height]);
+
+    const container = svg.append("g");
+
+    // Reusable layers
+    const linkLayer = container.append("g").attr("class", "link-layer");
+    const nodeLayer = container.append("g").attr("class", "node-layer");
+    const labelLayer = container.append("g").attr("class", "label-layer");
+
+     // Save to graphState
+    graphState.svg = svg;
+    graphState.container = container;
+    graphState.linkLayer = linkLayer;
+    graphState.nodeLayer = nodeLayer;
+    graphState.labelLayer = labelLayer;
+
+    createSimulation();
+}
+
+function createSimulation() {
+    const simulation = d3.forceSimulation()                 // Creates physics for the nodes 
+        .force("link", d3.forceLink().id(d => d.id))        // Spring Force that pulls nodes together
+        .force("charge", d3.forceManyBody())                // Repulsive Force
+        .force("x", d3.forceX())                            // Centring Force -> pulls towards x = 0
+        .force("y", d3.forceY())                            // Centring Force -> pulls towards y = 0
+
+    graphState.simulation = simulation;
+}
+
 
 
 // GRAPH Rendering
-function renderGraph (data, shouldZoom) {
+function renderGraph (data, shouldZoom, groupDisplayMap) {
 
     // Dimensions -> Virtual Drawing Area for the Graph (viewBox)
     const width = 928;
@@ -489,12 +648,12 @@ function renderGraph (data, shouldZoom) {
 
 
     // Node color
-    const myColors = ["#ff006e", "#ffb703", "#036666", "#6f1d1b", "#5a189a", "#00b4d8", "#ff7f51", "#ffb3c6", "#250902", "#ef233c", "#192bc2"];
-    shuffle(myColors);
     // color -> Function that maps groups to colors
     // Assigns dynamically as its called
     // 1st group its called with -> 1st color . . . . and so on
-    const color = d3.scaleOrdinal(myColors);  
+    const color = (group) => {
+        return groupColorMap[group] || "#cccccc";  // fallback gray for new groups
+    };
 
 
     // LOADING DATA
@@ -503,62 +662,77 @@ function renderGraph (data, shouldZoom) {
     const nodes = data.nodes.map(d => ({...d}));
 
 
-    // Randomize initial position between (-w/2, h/2) to  (w/2 to h/2)
+    
+    // Preserve positions of existing nodes
+    const oldNodeMap = new Map(graphState.currentNodes.map(d => [d.id, d]));
+    
     nodes.forEach(d => {
+        const old = oldNodeMap.get(d.id);
+        if (old) {
+            d.x = old.x;
+            d.y = old.y;
+            d.vx = old.vx;
+            d.vy = old.vy;
+        } else {
+            // Randomize position for new nodes only
+            // Randomize initial position between (-w/2, h/2) to  (w/2 to h/2)
         d.x = (Math.random() - 0.5) * width;
         d.y = (Math.random() - 0.5) * height;
+        }
     });
 
 
-    // Add forces
-    const simulation = d3.forceSimulation(nodes)            // Creates physics for the nodes 
-        .force("link", d3.forceLink(links).id(d => d.id))   // Spring Force that pulls nodes together
-        .force("charge", d3.forceManyBody())                // Repulsive Force
-        .force("x", d3.forceX())                            // Centring Force -> pulls towards x = 0
-        .force("y", d3.forceY())                            // Centring Force -> pulls towards y = 0
+    // Setting up the graph
+    setupGraphCanvas(width, height);  // <- new function
+
+
+    // Create Simulation
+    const simulation = graphState.simulation;
+    simulation.nodes(nodes);
+    simulation.force("link").links(links);
+    //  Restart if structure changed
+    if (shouldZoom) {
+        simulation.alpha(1).restart();
+    }
+
+
+
 
 
     // CREATING ELEMENTS
-    // Create SVG
-    const svg = d3.select(".draw-area")
-        .append("svg")
-        .attr("id", "graph-svg")
-        .attr("viewBox", [-width / 2, -height / 2, width, height]);
-        // Viewbox goes from (-w/2, -h/2) to (w/2, h/2)   ->   (0, 0) is the centre
-
-
-    // Cotainer group inside  SVG   (Organization Purposes)
-    // Keeping all elements inside a group so transitions (zoom/pan) are easier to apply
-    const container = svg.append("g");
+    const svg = graphState.svg;
+    const container = graphState.container;
 
 
     // Create edges
-    const link = container.append("g")
+    const link = graphState.linkLayer
         .selectAll("line")
-        .data(links)
+        .data(links, d => `${d.source.id}-${d.target.id}`)  // key function for better joins
         .join("line")
-        .attr("class", "link-edge")
+        .attr("class", "link-edge");
+
 
 
     // Create nodes
-    const node = container.append("g")
+    const node = graphState.nodeLayer
         .selectAll("circle")
-        .data(nodes)
+        .data(nodes, d => d.id)  // use id to preserve positions
         .join("circle")
         .attr("class", "node-circle")
-        .attr("r",5)
+        .attr("r", 5)
         .attr("fill", d => color(d.group))
         .attr("stroke", d => d3.rgb(color(d.group)).darker(1));
 
 
+
     // Create labels
-    const labels = container.append("g")
+    const labels = graphState.labelLayer
         .selectAll("text")
-        .data(nodes)
+        .data(nodes, d => d.id)
         .join("text")
         .attr("class", "node-label")
         .attr("dy", 2)
-        .text(d => d.id);   
+        .text(d => d.id);
         
 
     // DRAGGING 
@@ -582,8 +756,8 @@ function renderGraph (data, shouldZoom) {
         .attr("class", "node-tooltip")
 
     // Tooltip Animation
-    addTooltipBehavior(node, color, tooltip);
-    addTooltipBehavior(labels, color, tooltip);
+    addTooltipBehavior(node, color, tooltip, groupDisplayMap);
+    addTooltipBehavior(labels, color, tooltip, groupDisplayMap);
 
     
 
@@ -648,5 +822,12 @@ function renderGraph (data, shouldZoom) {
     svg.on("dblclick.zoomToFit", () => zoomToFit(svg, nodes, width, height, zoom));
     
 
-    
+    graphState.simulation = simulation;
+    graphState.zoom = zoom;
+    graphState.nodeSelection = node;
+    graphState.linkSelection = link;
+    graphState.labelSelection = labels;
+    graphState.currentNodes = nodes;
+    graphState.currentLinks = links;
+
 };

@@ -5,6 +5,12 @@
     box-sizing: border-box;
 }
 
+html, body {
+    height: 100%;
+    overflow: hidden; /* prevents scrollbars */
+}
+
+
 /* HEADING AREA */
 header .heading {
     text-align: center;
