@@ -445,9 +445,7 @@ function updateGraphFromInput(shouldZoom = false) {
 
 
     // Fix zoom only if graph structure changes
-    if (graphState.currentNodes.length > 0 && graphState.currentLinks.length > 0) {
-        shouldZoom = isGraphStructureChanged(graphData.nodes, graphData.links);
-    }
+    shouldZoom = isGraphStructureChanged(graphData.nodes, graphData.links);
     
     // Render
     renderGraph(graphData, shouldZoom, groupDisplayMap);
@@ -669,6 +667,11 @@ function getGraphBoundingBox(nodes) {
 // ZOOM function
 // Find the smallest box that contains all nodes and zoom in/out to fit to that
 function zoomToFit(svg, nodes, width, height, zoom) {
+    // No nodes to zoom
+    if (!nodes || nodes.length === 0) {
+        return;
+    }
+
     // Getting node positions and top-left, bottom-right boundaries
     const { minX, maxX, minY, maxY } = getGraphBoundingBox(nodes);
 
@@ -776,6 +779,11 @@ function renderGraph (data, shouldZoom, groupDisplayMap) {
     const simulation = graphState.simulation;
     simulation.nodes(nodes);
     simulation.force("link").links(links);
+
+    // If no links, apply a collision force to prevent overlap
+    if (links.length === 0) simulation.force("collide", d3.forceCollide().radius(15));
+    else simulation.force("collide", null);
+    
     //  Restart only if structure changed
     if (shouldZoom) {
         simulation.alpha(1).restart();
