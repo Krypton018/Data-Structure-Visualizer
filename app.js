@@ -26,7 +26,11 @@ let graphState = {
     // Node Format : { id: "A", group: "G1", x: 100, y:100, vx: 200, vy: 200 }
     currentNodes: [],           // Current Node Data
     // Link Format : { source: "A", target: "B", value: 1 }
-    currentLinks: []            // Current Link Data
+    currentLinks: [],           // Current Link Data
+
+    // Dimensions
+    width: 928,
+    height: 680
 };
 
 // Error markers IDs for Ace Error Annotations
@@ -160,8 +164,13 @@ function setEditorErrorMessage(containerId, errors) {
 
 
 
-
-
+// ===================================================
+// [5] INPUT PARSING & VALIDATION
+// ---------------------------------------------------
+// Purpose: Parses and validates user input for nodes
+// and edges, assigns groups using DSU, and formats
+// the data into a usable graph structure.
+// ===================================================
 
 // Validating node Names
 function validateNodes(text) {
@@ -199,6 +208,7 @@ function validateNodes(text) {
         nodeErrors,        // Array of errors (if any) {line: number, reason: string}
     };
 }
+
 // Validating Edge Names
 function validateEdges(text, validNodes) {
     const lines = text.split('\n');          // Getting each edge separately
@@ -247,8 +257,6 @@ function validateEdges(text, validNodes) {
     };
 }
 
-
-// PARSE HANDLING FUNCTIONS
 // Building adjacency list for grouping nodes
 function buildAdjacencyList(validNodes, validEdges) {
     const graph = {};
@@ -266,6 +274,7 @@ function buildAdjacencyList(validNodes, validEdges) {
 
     return graph;
 }
+
 // Assigning groups to each node  (IMPLETED VIA DSU)
 function assignGroups(validNodes, graph) {
     const parent = {};   // Keep track of parents
@@ -319,8 +328,6 @@ function assignGroups(validNodes, graph) {
     return result;
 }
 
-
-
 // Formatting Edges
 function formatEdges(validEdges) {
     return validEdges.map(([source, target]) => ({
@@ -331,6 +338,17 @@ function formatEdges(validEdges) {
 }
 
 
+
+
+// ===================================================
+// [6] GRAPH DATA UPDATE HANDLING
+// ---------------------------------------------------
+// Purpose: Detects changes in input structure, validates
+// new data, parses it, assigns group colors, and triggers
+// a re-render of the graph.
+// ===================================================
+
+// Check if the graph structure has changed
 function isGraphStructureChanged(newNodes, newLinks) {
     // Loading old nodes and new nodes
     const oldNodeIds = new Set(graphState.currentNodes.map(d => d.id));
@@ -341,7 +359,7 @@ function isGraphStructureChanged(newNodes, newLinks) {
         return true;
     }
 
-    // Convert old edges to a sorted string
+    // Convert old edges to a sorted string (Each element -> "Source-Target")
     const oldEdges = new Set(
         graphState.currentLinks.map(d => {
             const u = d.source.id || d.source;
@@ -350,7 +368,7 @@ function isGraphStructureChanged(newNodes, newLinks) {
         })
     );
 
-    // Convert new edges to a sorted string
+    // Convert new edges to a sorted string (Each element -> "Source-Target")
     const newEdges = new Set(
         newLinks.map(d => [d.source, d.target].sort().join("-"))
     );
@@ -363,57 +381,44 @@ function isGraphStructureChanged(newNodes, newLinks) {
     return false;
 }
 
-
-
 // Updation Function -> Update graph from input
 function updateGraphFromInput(shouldZoom = false) {
     // NODES
-    // Fetching new data
-    const nodeText = nodesEditor.getValue();
-    // Validating data
-    const {validNodes, nodeErrors} = validateNodes(nodeText);
+    const nodeText = nodesEditor.getValue();                    // Fetching new data
+    const {validNodes, nodeErrors} = validateNodes(nodeText);   // Validating data
 
     // ERROR HANDLING
-    // Highlighting Error Lines
-    markEditorErrors(nodesEditor, nodeErrors, nodeErrorMarkers);
-    // Add Gutter Symbol
-    markEditorAnnotation(nodesEditor, nodeErrors);
-    // Display Error
-    setEditorErrorMessage("nodes-error-msg", nodeErrors);
-
+    markEditorErrors(nodesEditor, nodeErrors, nodeErrorMarkers);   // Highlighting Error Lines
+    markEditorAnnotation(nodesEditor, nodeErrors);                 // Add Gutter Symbol
+    setEditorErrorMessage("nodes-error-msg", nodeErrors);          // Display Error
 
     
     
     // EDGES
-    // Fetching new data
-    const edgeText = edgesEditor.getValue();
-    // Validating data
-    const {validEdges, edgeErrors} = validateEdges(edgeText, validNodes);
+    const edgeText = edgesEditor.getValue();                                 // Fetching new data
+    const {validEdges, edgeErrors} = validateEdges(edgeText, validNodes);    // Validating data
 
     // ERROR HANDLING
-    // Highlighting Error Lines
-    markEditorErrors(edgesEditor, edgeErrors, edgeErrorMarkers);
-    // Add Gutter Symbol
-    markEditorAnnotation(edgesEditor, edgeErrors);
-    // Display Error
-    setEditorErrorMessage("edges-error-msg", edgeErrors);
+    markEditorErrors(edgesEditor, edgeErrors, edgeErrorMarkers);   // Highlighting Error Lines
+    markEditorAnnotation(edgesEditor, edgeErrors);                 // Add Gutter Symbol
+    setEditorErrorMessage("edges-error-msg", edgeErrors);          // Display Error
 
 
-    // PARSING
-    // Creating adjacency list from input
-    const graph = buildAdjacencyList(validNodes, validEdges);
-    // Grouping and formatting nodes
-    const groupedNodes = assignGroups(validNodes, graph);
-    // Formatting edges
-    const links = formatEdges(validEdges);
-    // Formatting Graph Data
-    const graphData = {
-        nodes: groupedNodes,
-        links: links
-    };
 
-    // Getting list of unique groups
-    const allGroups = [...new Set(groupedNodes.map(d => d.group))];  
+
+    // PARSING AND GROUPING
+    const graph = buildAdjacencyList(validNodes, validEdges);   // Creating adjacency list from input
+    const groupedNodes = assignGroups(validNodes, graph);       // Grouping and formatting nodes { id: "A", group: "Root_node"}
+    const links = formatEdges(validEdges);                      // Formatting edges
+    const graphData = { nodes: groupedNodes, links: links };    // Formatting Graph Data
+
+
+
+    
+    // ASIGNING COLORS AND DISPLAY GROUPS
+    // Getting set of unique groups
+    const allGroups = [...new Set(groupedNodes.map(d => d.group))];
+
     // Assigning color to new groups
     allGroups.forEach(group => {
         if (!(group in groupColorMap)) {
@@ -452,11 +457,65 @@ function updateGraphFromInput(shouldZoom = false) {
 
 
 
+// ===================================================
+// [7] GRAPH CANVAS INITIALIZATION
+// ---------------------------------------------------
+// Purpose: Sets up the SVG element, container group,
+// simulation instance, and separate layers for links,
+// nodes, and labels. Called once before first render.
+// ===================================================
+
+// Initial Graph Setup
+function setupGraphCanvas(width, height) {
+    if (graphState.svg) return;  // Already created
+
+    // Creating SVG
+    const svg = d3.select(".draw-area")
+        .append("svg")
+        .attr("id", "graph-svg")
+        .attr("viewBox", [-width / 2, -height / 2, width, height]);
+
+    // Create Container inside SVG to hold all the elements
+    const container = svg.append("g");
+
+    // Reusable layers 
+    const linkLayer = container.append("g").attr("class", "link-layer");    // Grouping Links
+    const nodeLayer = container.append("g").attr("class", "node-layer");    // Grouping Nodes
+    const labelLayer = container.append("g").attr("class", "label-layer");  // Grouping Labels
+    
+
+    // Create Simulation
+    const simulation = d3.forceSimulation()                 // Creates physics for the nodes 
+        .force("link", d3.forceLink().id(d => d.id))        // Spring Force that pulls nodes together
+        .force("charge", d3.forceManyBody())                // Repulsive Force
+        .force("x", d3.forceX())                            // Centring Force -> pulls towards x = 0
+        .force("y", d3.forceY())                            // Centring Force -> pulls towards y = 0
+    
+
+    // Save to graphState
+    graphState.svg = svg;
+    graphState.container = container;
+    graphState.linkLayer = linkLayer;
+    graphState.nodeLayer = nodeLayer;
+    graphState.labelLayer = labelLayer;
+    graphState.simulation = simulation;
+}
+
+
+
+
+// ===================================================
+// [8] INITIAL GRAPH LOAD
+// ---------------------------------------------------
+// Purpose: Loads default graph from graph.json,
+// populates editors, randomizes initial colors, and
+// performs the first render before enabling input.
+// ===================================================
+
 // Load default graph from graph.json
 d3.json("graph.json").then((data) => {
-    // Extract node
+    // Extract node and edge data
     const nodeText = data.nodes.map(d => d.id).join('\n');
-    // Extract edges
     const edgeText = data.links.map(d => `${d.source} ${d.target}`).join('\n');
 
     // Detach input handlers
@@ -479,6 +538,8 @@ d3.json("graph.json").then((data) => {
         groupColorMap[group] = myColors[index % myColors.length];
     });
 
+    // Intial Graph setup
+    setupGraphCanvas(graphState.width, graphState.height); 
     // Manually render once
     updateGraphFromInput(true);   // true -> zoom on first load
 
@@ -491,24 +552,13 @@ d3.json("graph.json").then((data) => {
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-// VISUALIZATION PART
-// --- Utitlity Functions --- (For Graph Generation)
+// ===================================================
+// [9] GRAPH INTERACTION & LAYOUT UTILITIES
+// ---------------------------------------------------
+// Purpose: Handles drag behavior, tooltips, zoom/pan,
+// bounding box calculations, and color shuffling.
+// Supports interactive layout and rendering logic.
+// ===================================================
 
 // Randomizing colors
 function shuffle(array) {
@@ -519,7 +569,7 @@ function shuffle(array) {
     return array;
 }
 
-// Tooltip animation
+// Tooltip animation on hover
 function addTooltipBehavior(selection, color, tooltip, groupDisplayMap) {
     let tooltipTimeout;
 
@@ -617,8 +667,7 @@ function getGraphBoundingBox(nodes) {
 
 
 // ZOOM function
-// Find the smallest box that contains all nodes
-// and zoom in/out to fit to that
+// Find the smallest box that contains all nodes and zoom in/out to fit to that
 function zoomToFit(svg, nodes, width, height, zoom) {
     // Getting node positions and top-left, bottom-right boundaries
     const { minX, maxX, minY, maxY } = getGraphBoundingBox(nodes);
@@ -666,52 +715,21 @@ function zoomToFit(svg, nodes, width, height, zoom) {
 
 
 
+// ===================================================
+// [10] GRAPH RENDERING ENGINE
+// ---------------------------------------------------
+// Purpose: Responsible for rendering nodes, edges,
+// and labels on the canvas. Preserves node positions,
+// applies dragging, zooming, tooltip behavior, and
+// updates the simulation tick-by-tick.
+// ===================================================
 
-
-// Initial Graph Setup
-function setupGraphCanvas(width, height) {
-    if (graphState.svg) return;  // Already created
-
-    // Creating SVG
-    const svg = d3.select(".draw-area")
-        .append("svg")
-        .attr("id", "graph-svg")
-        .attr("viewBox", [-width / 2, -height / 2, width, height]);
-
-    // Create Container inside SVG to hold all the elements
-    const container = svg.append("g");
-
-    // Reusable layers 
-    const linkLayer = container.append("g").attr("class", "link-layer");    // Grouping Links
-    const nodeLayer = container.append("g").attr("class", "node-layer");    // Grouping Nodes
-    const labelLayer = container.append("g").attr("class", "label-layer");  // Grouping Labels
-    
-
-    // Create Simulation
-    const simulation = d3.forceSimulation()                 // Creates physics for the nodes 
-        .force("link", d3.forceLink().id(d => d.id))        // Spring Force that pulls nodes together
-        .force("charge", d3.forceManyBody())                // Repulsive Force
-        .force("x", d3.forceX())                            // Centring Force -> pulls towards x = 0
-        .force("y", d3.forceY())                            // Centring Force -> pulls towards y = 0
-    
-
-    // Save to graphState
-    graphState.svg = svg;
-    graphState.container = container;
-    graphState.linkLayer = linkLayer;
-    graphState.nodeLayer = nodeLayer;
-    graphState.labelLayer = labelLayer;
-    graphState.simulation = simulation;
-}
-
-
-
-// GRAPH Rendering
+// Rendering the graph
 function renderGraph (data, shouldZoom, groupDisplayMap) {
 
     // Dimensions -> Virtual Drawing Area for the Graph (viewBox)
-    const width = 928;
-    const height = 680;
+    const width = graphState.width;
+    const height = graphState.height;
 
 
     // Node color
@@ -751,8 +769,7 @@ function renderGraph (data, shouldZoom, groupDisplayMap) {
     });
 
 
-    // Initial Graph setup
-    setupGraphCanvas(width, height);  
+     
 
 
     // Create Simulation for nodes and links
