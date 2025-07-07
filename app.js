@@ -1,58 +1,149 @@
-// INPUT PART
-// --- Utitlity Functions --- 
-// Parsing Data after 1 sec
+// ===================================================
+// [1] CONFIGURATION & GLOBAL STATE
+// ---------------------------------------------------
+// Purpose: Holds simulation state, group colors, and error markers
+// Shared by rendering, parsing, and validation logic
+// ===================================================
+
+// Tracks the state of the graph visualization
+let graphState = {
+    svg: null,                  // Main SVG Element
+    container: null,            // Group that holds all elements
+    simulation: null,           // Force Simulation Instance
+    zoom: null,                 // Pan/Zoom Behaviour
+    
+    // SVG Layer Groups (Layers used to prganize visuals for rendering the nodes, edges, labels)
+    nodeLayer: null,            // <g> group for all nodes
+    linkLayer: null,            // <g> group for all edges
+    labelLayer: null,           // <g> group for all labels
+    
+    // Current Selection of rendered DOM elements (Used to update positions, color, etc)
+    nodeSelection: null,        // Current <circle> selections (DOM)
+    linkSelection: null,        // Current <line> selections (DOM)
+    labelSelection: null,       // Current <text> selections (DOM)
+    
+    // Active graph data
+    // Node Format : { id: "A", group: "G1", x: 100, y:100, vx: 200, vy: 200 }
+    currentNodes: [],           // Current Node Data
+    // Link Format : { source: "A", target: "B", value: 1 }
+    currentLinks: []            // Current Link Data
+};
+
+// Error markers IDs for Ace Error Annotations
+let nodeErrorMarkers = [];       // Store ID of node errors
+let edgeErrorMarkers = [];       // Store ID of edge errors
+
+// Color palette and group mapping
+let myColors = [];               // Randomized color palette
+let groupColorMap = {};          // Group to Color mapping
+let colorIndexCounter = 0;       // Track number of groups
+
+
+
+
+// ===================================================
+// [2] ACE EDITOR SETUP
+// ---------------------------------------------------
+// Purpose: Sets up editors for node and edge input,
+// initializes Ace themes and modes.
+// ===================================================
+
+// Notes Input Editor
+const nodesEditor = ace.edit("nodes-input");
+nodesEditor.setTheme("ace/theme/monokai");
+nodesEditor.session.setMode("ace/mod/plain_text");
+
+// Edges Input Editor
+const edgesEditor = ace.edit("edges-input");
+edgesEditor.setTheme("ace/theme/monokai");
+edgesEditor.session.setMode("ace/mode/plain_text");
+
+
+
+
+// ===================================================
+// [3] USER INPUT EVENT HANDLERS
+// ---------------------------------------------------
+// Purpose: Detects changes in node/edge editors and
+// schedules delayed parsing (with 500ms debounce).
+// ===================================================
+
+// Debounce timers for delayed validation
 let inputNodeTimeout;
-function handleNodeInput() {
-    clearTimeout(inputNodeTimeout);      // Clear previous timeout
-    clearEditorMarkers(nodesEditor, nodeErrorMarkers);    // Clearing old node markers (errors)
-    nodesEditor.session.clearAnnotations();    // Clearing old gutter annotations
-    inputNodeTimeout = setTimeout(updateGraphFromInput, 500);    // Upadate graph after 1s delay
-}
 let inputEdgeTimeout;
-function handleEdgeInput() {
-    clearTimeout(inputEdgeTimeout);      // Clear previous timeout
-    clearEditorMarkers(edgesEditor, edgeErrorMarkers);    // Clearing old edge markers (errors)
-    edgesEditor.session.clearAnnotations();    // Clearing old gutter annotations
-    inputEdgeTimeout = setTimeout(updateGraphFromInput, 500);    // Upadate graph after 1s delay
+
+// Handler : Nodes Input Changed
+function handleNodeInput() {
+    clearTimeout(inputNodeTimeout);                             // Clear previous timeout
+    clearEditorMarkers(nodesEditor, nodeErrorMarkers);          // Clearing old node markers (errors)
+    nodesEditor.session.clearAnnotations();                     // Clearing old gutter annotations
+    inputNodeTimeout = setTimeout(updateGraphFromInput, 500);   // Update graph after delay
 }
 
+// Handler : Edges Input Changed
+function handleEdgeInput() {
+    clearTimeout(inputEdgeTimeout);                             // Clear previous timeout
+    clearEditorMarkers(edgesEditor, edgeErrorMarkers);          // Clearing old edge markers (errors)
+    edgesEditor.session.clearAnnotations();                     // Clearing old gutter annotations
+    inputEdgeTimeout = setTimeout(updateGraphFromInput, 500);   // Update graph after delay
+}
 
-// ERROR HANDLING FUNCTIONS
+// Attach listeners to editors
+nodesEditor.session.on("change", handleNodeInput);
+edgesEditor.session.on("change", handleEdgeInput);
+
+
+
+
+
+// ===================================================
+// [4] ERROR HANDLING HELPERS
+// ---------------------------------------------------
+// Purpose: Provides utility functions to highlight errors
+// in the Ace editors, show annotations in the gutter,
+// and display error messages below the inputs.
+// ===================================================
+
 // Clearing all previous markers
 function clearEditorMarkers(editor, markerIds) {
-    markerIds.forEach(id => editor.session.removeMarker(id));
-    markerIds.length = 0; // Clear the array in-place
+    markerIds.forEach(id => editor.session.removeMarker(id));   // Remove each marker
+    markerIds.length = 0;                                       // Clear the array in-place
 }
+
 // Highlighting Error Lines
 function markEditorErrors(editor, errors, markerArray) {
     // Clearing old markers
     clearEditorMarkers(editor, markerArray);
 
+    // Adding new errors
     errors.forEach(error => {
-        const lineLength = editor.session.getLine(error.line).length;      // Getting error line length
-        const markerId = editor.session.addMarker(                   // Adding marker to that line
-            new ace.Range(error.line, 0, error.line, lineLength),    // Start row, Start col, End row, End col
-            'ace_error-line',
-            'fullLine',
-            false     // false -> Render the marker behind the text
+        const markerId = editor.session.addMarker(       
+            // Adding new error marking
+            new ace.Range(error.line, 0, error.line, 0.1),    // Start row, Start col, End row, End col
+            'ace_error-line',                                 // CSS class (styling)
+            'fullLine',                                       // mode : highlight the full line
+            false                                             // false -> Render the marker behind the text
         );
         
         // Saving all error markers
         markerArray.push(markerId);
     });
 }
+
 // Error Line Gutter Caution sign
 function markEditorAnnotation(editor, errors) {
+    // Annotate the first line if there are erros
     if (errors.length > 0) {
         editor.session.setAnnotations([
             {
-                row: errors[0].line,      // Line number (0-indexed)
-                column: 0,
+                row: errors[0].line,      // Line number (0-indexed)  -> Only display the first error
+                column: 0,                // Start at column 0
                 text: errors[0].reason,   // Tooltip message
-                type: "warning"             
+                type: "warning"           // Warning sign in gutter 
             }
         ]);
     } else {
+        // Clear previous annotations
         editor.session.clearAnnotations();
     }
 }
@@ -65,10 +156,17 @@ function setEditorErrorMessage(containerId, errors) {
         container.textContent = '';
     }
 }
+
+
+
+
+
+
+
 // Validating node Names
 function validateNodes(text) {
     const lines = text.split('\n');          // Getting each node separately
-    const nodeErrors = [];                       // Keeping track of all errors
+    const nodeErrors = [];                   // Keeping track of all errors
     const nodeSet = new Set();               // Keeping track of all valid unique nodes
     const validRegex = /^[a-zA-Z0-9_]+$/;    // For valid node names
     
@@ -104,7 +202,7 @@ function validateNodes(text) {
 // Validating Edge Names
 function validateEdges(text, validNodes) {
     const lines = text.split('\n');          // Getting each edge separately
-    const edgeErrors = [];                       // Keeping track of all errors
+    const edgeErrors = [];                   // Keeping track of all errors
     const edges = [];                        // Keeping track of all edges
     const validRegex = /^[a-zA-Z0-9_]+$/;    // For valid edge names
 
@@ -168,10 +266,10 @@ function buildAdjacencyList(validNodes, validEdges) {
 
     return graph;
 }
-// Assigning groups to each node  (IMPLETED VIA)
+// Assigning groups to each node  (IMPLETED VIA DSU)
 function assignGroups(validNodes, graph) {
-    const parent = {};
-    const size = {};
+    const parent = {};   // Keep track of parents
+    const size = {};     // Keep track of size of component
 
     // Initially, each node is its own group
     validNodes.forEach(node => {
@@ -234,6 +332,7 @@ function formatEdges(validEdges) {
 
 
 function isGraphStructureChanged(newNodes, newLinks) {
+    // Loading old nodes and new nodes
     const oldNodeIds = new Set(graphState.currentNodes.map(d => d.id));
     const newNodeIds = new Set(newNodes.map(d => d.id));
 
@@ -242,6 +341,7 @@ function isGraphStructureChanged(newNodes, newLinks) {
         return true;
     }
 
+    // Convert old edges to a sorted string
     const oldEdges = new Set(
         graphState.currentLinks.map(d => {
             const u = d.source.id || d.source;
@@ -250,6 +350,7 @@ function isGraphStructureChanged(newNodes, newLinks) {
         })
     );
 
+    // Convert new edges to a sorted string
     const newEdges = new Set(
         newLinks.map(d => [d.source, d.target].sort().join("-"))
     );
@@ -311,9 +412,9 @@ function updateGraphFromInput(shouldZoom = false) {
         links: links
     };
 
+    // Getting list of unique groups
+    const allGroups = [...new Set(groupedNodes.map(d => d.group))];  
     // Assigning color to new groups
-    const allGroups = [...new Set(groupedNodes.map(d => d.group))];
-
     allGroups.forEach(group => {
         if (!(group in groupColorMap)) {
             groupColorMap[group] = myColors[colorIndexCounter % myColors.length];
@@ -338,48 +439,19 @@ function updateGraphFromInput(shouldZoom = false) {
 
 
 
-
-    // Render
-    // const shouldZoom = isGraphStructureChanged(graphData.nodes, graphData.links);
+    // Fix zoom only if graph structure changes
     if (graphState.currentNodes.length > 0 && graphState.currentLinks.length > 0) {
         shouldZoom = isGraphStructureChanged(graphData.nodes, graphData.links);
     }
-
+    
+    // Render
     renderGraph(graphData, shouldZoom, groupDisplayMap);
-
-
-
-    
-    
-    
-    
-    
 
 }
 
 
-// Input Editors
-// Notes Input
-const nodesEditor = ace.edit("nodes-input");
-nodesEditor.setTheme("ace/theme/monokai");
-nodesEditor.session.setMode("ace/mod/plain_text");
 
-// Edges Input
-const edgesEditor = ace.edit("edges-input");
-edgesEditor.setTheme("ace/theme/monokai");
-edgesEditor.session.setMode("ace/mode/plain_text");
 
-// Listeners for user input
-nodesEditor.session.on("change", handleNodeInput);
-edgesEditor.session.on("change", handleEdgeInput);
-
-// Store marker IDs to remove later, etc
-let nodeErrorMarkers = [];
-let edgeErrorMarkers = [];
-
-let myColors = [];
-let groupColorMap = {};
-let colorIndexCounter = 0;
 // Load default graph from graph.json
 d3.json("graph.json").then((data) => {
     // Extract node
@@ -401,8 +473,8 @@ d3.json("graph.json").then((data) => {
         "#00b4d8", "#ff7f51", "#ffb3c6", "#250902", "#ef233c", "#192bc2"
     ]);
 
-    const groups = [...new Set(data.nodes.map(d => d.group))];  // Unique group names
-    groupColorMap = {};
+    // Mapping groups to colors
+    const groups = [...new Set(data.nodes.map(d => d.group))];  // Getting all unique groups
     groups.forEach((group, index) => {
         groupColorMap[group] = myColors[index % myColors.length];
     });
@@ -530,9 +602,11 @@ function dragended(event, simulation) {
 
 // Finding the smallest rectangle that fits all the nodes
 function getGraphBoundingBox(nodes) {
+    // Getting x and y coords of all the nodes
     const xs = nodes.map(d => d.x);
     const ys = nodes.map(d => d.y);
 
+    // Finding boundary coords
     const minX = Math.min(...xs);
     const maxX = Math.max(...xs);
     const minY = Math.min(...ys);
@@ -589,51 +663,44 @@ function zoomToFit(svg, nodes, width, height, zoom) {
         );
 }
 
-let graphState = {
-  svg: null,                  // Main Container
-  container: null,            // Holds all the elements
-  simulation: null,           // Runs Force Layout
-  zoom: null,                 // Pan/Zoom Behaviour
-  nodeSelection: null,        // Nodes in SVG
-  linkSelection: null,        // Links in SVG
-  labelSelection: null,       // Edges in SVG
-  currentNodes: [],           // Internal Data of Nodes
-  currentLinks: [],           // Internal Data of Links
-};
 
 
+
+
+
+// Initial Graph Setup
 function setupGraphCanvas(width, height) {
-  if (graphState.svg) return;  // Already created
+    if (graphState.svg) return;  // Already created
 
-  const svg = d3.select(".draw-area")
-    .append("svg")
-    .attr("id", "graph-svg")
-    .attr("viewBox", [-width / 2, -height / 2, width, height]);
+    // Creating SVG
+    const svg = d3.select(".draw-area")
+        .append("svg")
+        .attr("id", "graph-svg")
+        .attr("viewBox", [-width / 2, -height / 2, width, height]);
 
+    // Create Container inside SVG to hold all the elements
     const container = svg.append("g");
 
-    // Reusable layers
-    const linkLayer = container.append("g").attr("class", "link-layer");
-    const nodeLayer = container.append("g").attr("class", "node-layer");
-    const labelLayer = container.append("g").attr("class", "label-layer");
+    // Reusable layers 
+    const linkLayer = container.append("g").attr("class", "link-layer");    // Grouping Links
+    const nodeLayer = container.append("g").attr("class", "node-layer");    // Grouping Nodes
+    const labelLayer = container.append("g").attr("class", "label-layer");  // Grouping Labels
+    
 
-     // Save to graphState
-    graphState.svg = svg;
-    graphState.container = container;
-    graphState.linkLayer = linkLayer;
-    graphState.nodeLayer = nodeLayer;
-    graphState.labelLayer = labelLayer;
-
-    createSimulation();
-}
-
-function createSimulation() {
+    // Create Simulation
     const simulation = d3.forceSimulation()                 // Creates physics for the nodes 
         .force("link", d3.forceLink().id(d => d.id))        // Spring Force that pulls nodes together
         .force("charge", d3.forceManyBody())                // Repulsive Force
         .force("x", d3.forceX())                            // Centring Force -> pulls towards x = 0
         .force("y", d3.forceY())                            // Centring Force -> pulls towards y = 0
+    
 
+    // Save to graphState
+    graphState.svg = svg;
+    graphState.container = container;
+    graphState.linkLayer = linkLayer;
+    graphState.nodeLayer = nodeLayer;
+    graphState.labelLayer = labelLayer;
     graphState.simulation = simulation;
 }
 
@@ -664,10 +731,12 @@ function renderGraph (data, shouldZoom, groupDisplayMap) {
 
     
     // Preserve positions of existing nodes
+    // Creates a mapping node ID -> old node object {id, x, y, vx, vy}
     const oldNodeMap = new Map(graphState.currentNodes.map(d => [d.id, d]));
     
     nodes.forEach(d => {
         const old = oldNodeMap.get(d.id);
+        // If the node already existed previously (keep its state same)
         if (old) {
             d.x = old.x;
             d.y = old.y;
@@ -676,27 +745,24 @@ function renderGraph (data, shouldZoom, groupDisplayMap) {
         } else {
             // Randomize position for new nodes only
             // Randomize initial position between (-w/2, h/2) to  (w/2 to h/2)
-        d.x = (Math.random() - 0.5) * width;
-        d.y = (Math.random() - 0.5) * height;
+            d.x = (Math.random() - 0.5) * width;
+            d.y = (Math.random() - 0.5) * height;
         }
     });
 
 
-    // Setting up the graph
-    setupGraphCanvas(width, height);  // <- new function
+    // Initial Graph setup
+    setupGraphCanvas(width, height);  
 
 
-    // Create Simulation
+    // Create Simulation for nodes and links
     const simulation = graphState.simulation;
     simulation.nodes(nodes);
     simulation.force("link").links(links);
-    //  Restart if structure changed
+    //  Restart only if structure changed
     if (shouldZoom) {
         simulation.alpha(1).restart();
     }
-
-
-
 
 
     // CREATING ELEMENTS
@@ -707,22 +773,20 @@ function renderGraph (data, shouldZoom, groupDisplayMap) {
     // Create edges
     const link = graphState.linkLayer
         .selectAll("line")
-        .data(links, d => `${d.source.id}-${d.target.id}`)  // key function for better joins
+        .data(links, d => `${d.source.id}-${d.target.id}`)  
         .join("line")
         .attr("class", "link-edge");
-
 
 
     // Create nodes
     const node = graphState.nodeLayer
         .selectAll("circle")
-        .data(nodes, d => d.id)  // use id to preserve positions
+        .data(nodes, d => d.id)  
         .join("circle")
         .attr("class", "node-circle")
         .attr("r", 5)
         .attr("fill", d => color(d.group))
         .attr("stroke", d => d3.rgb(color(d.group)).darker(1));
-
 
 
     // Create labels
@@ -821,7 +885,9 @@ function renderGraph (data, shouldZoom, groupDisplayMap) {
     svg.on("dblclick.zoom", null);
     svg.on("dblclick.zoomToFit", () => zoomToFit(svg, nodes, width, height, zoom));
     
+    
 
+    // Updating graph state
     graphState.simulation = simulation;
     graphState.zoom = zoom;
     graphState.nodeSelection = node;
