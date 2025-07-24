@@ -118,7 +118,7 @@ function clearEditorMarkers(editor, markerIds) {
 function markEditorErrors(editor, errors, markerArray) {
     // Clearing old markers
     clearEditorMarkers(editor, markerArray);
-
+    
     // Adding new errors
     errors.forEach(error => {
         const markerId = editor.session.addMarker(       
@@ -161,6 +161,12 @@ function setEditorErrorMessage(containerId, errors) {
     }
 }
 
+// Function to handle all editor error UI updates
+function handleEditorErrors(editor, errors, markerArray, containerId) {
+    markEditorErrors(editor, errors, markerArray);   // Highlighting Error Lines
+    markEditorAnnotation(editor, errors);            // Add Gutter Symbol
+    setEditorErrorMessage(containerId, errors);      // Display Error
+}
 
 
 
@@ -388,9 +394,7 @@ function updateGraphFromInput(shouldZoom = false) {
     const {validNodes, nodeErrors} = validateNodes(nodeText);   // Validating data
 
     // ERROR HANDLING
-    markEditorErrors(nodesEditor, nodeErrors, nodeErrorMarkers);   // Highlighting Error Lines
-    markEditorAnnotation(nodesEditor, nodeErrors);                 // Add Gutter Symbol
-    setEditorErrorMessage("nodes-error-msg", nodeErrors);          // Display Error
+    handleEditorErrors(nodesEditor, nodeErrors, nodeErrorMarkers, "nodes-error-msg");
 
     
     
@@ -399,9 +403,7 @@ function updateGraphFromInput(shouldZoom = false) {
     const {validEdges, edgeErrors} = validateEdges(edgeText, validNodes);    // Validating data
 
     // ERROR HANDLING
-    markEditorErrors(edgesEditor, edgeErrors, edgeErrorMarkers);   // Highlighting Error Lines
-    markEditorAnnotation(edgesEditor, edgeErrors);                 // Add Gutter Symbol
-    setEditorErrorMessage("edges-error-msg", edgeErrors);          // Display Error
+    handleEditorErrors(edgesEditor, edgeErrors, edgeErrorMarkers, "edges-error-msg");
 
 
 
@@ -420,12 +422,7 @@ function updateGraphFromInput(shouldZoom = false) {
     const allGroups = [...new Set(groupedNodes.map(d => d.group))];
 
     // Assigning color to new groups
-    allGroups.forEach(group => {
-        if (!(group in groupColorMap)) {
-            groupColorMap[group] = myColors[colorIndexCounter % myColors.length];
-            colorIndexCounter++;
-        }
-    });
+    allGroups.forEach(assignGroupColor);
 
     // Map group ID -> Display Group Number (1-based index)
     let groupDisplayMap = {};
@@ -433,16 +430,8 @@ function updateGraphFromInput(shouldZoom = false) {
         groupDisplayMap[group] = index + 1;
     });
 
-
     // Remove colors for groups no longer used
-    Object.keys(groupColorMap).forEach(group => {
-        if (!allGroups.includes(group)) {
-            delete groupColorMap[group];
-        }
-    });
-
-
-
+    cleanupGroupColors(allGroups);
 
     // Fix zoom only if graph structure changes
     shouldZoom = isGraphStructureChanged(graphData.nodes, graphData.links);
@@ -490,6 +479,43 @@ function setupGraphCanvas(width, height) {
         .force("y", d3.forceY())                            // Centring Force -> pulls towards y = 0
     
 
+    // Only create tooltip once
+    if (d3.select(".node-tooltip").empty()) {
+        d3.select("body")
+        .append("div")
+        .attr("class", "node-tooltip");
+    }
+
+
+    // Panning and Zooming
+    const panLimit = 300;
+    // Setting up zoom behaviour
+    const zoom = d3.zoom()
+        .scaleExtent([0.5, 15])       // 0.5x zoom till 15x zoom
+        .on("zoom", (event) => {
+            // (t.k, t.x, t.y) -> (Scale/Zoom factor, Horizontal pan, Vertical pan)
+            const t = event.transform;     
+
+            // Setting pan limit according to scale factor
+            const scaledPanLimit = panLimit * t.k;     
+
+            // Clamping
+            // Clamp the pan values between -scaledPanLimit and +scaledPanLimit
+            const limitedX = Math.max(Math.min(t.x, scaledPanLimit), -scaledPanLimit);
+            const limitedY = Math.max(Math.min(t.y, scaledPanLimit), -scaledPanLimit);
+            
+            container.attr("transform", `translate(${limitedX},${limitedY}) scale(${t.k})`);
+
+            // Hide tooltip on zoom/pan
+            d3.select(".node-tooltip")
+                .style("opacity", 0)
+                .style("transform", "translateY(8px)");
+        });
+    
+    // Apply zoom behaviour
+    svg.call(zoom);
+
+
     // Save to graphState
     graphState.svg = svg;
     graphState.container = container;
@@ -497,6 +523,7 @@ function setupGraphCanvas(width, height) {
     graphState.nodeLayer = nodeLayer;
     graphState.labelLayer = labelLayer;
     graphState.simulation = simulation;
+    graphState.zoom = zoom;
 }
 
 
@@ -525,10 +552,7 @@ d3.json("graph.json").then((data) => {
     edgesEditor.setValue(edgeText, -1);
 
     // Initially randomizing node color
-    myColors = shuffle([
-        "#ff006e", "#ffb703", "#036666", "#6f1d1b", "#5a189a",
-        "#00b4d8", "#ff7f51", "#ffb3c6", "#250902", "#ef233c", "#192bc2"
-    ]);
+    myColors = initColorPalette()
 
     // Mapping groups to colors
     const groups = [...new Set(data.nodes.map(d => d.group))];  // Getting all unique groups
@@ -567,9 +591,34 @@ function shuffle(array) {
     return array;
 }
 
+// Initialize the color palette
+function initColorPalette() {
+    return shuffle([
+        "#ff006e", "#ffb703", "#036666", "#6f1d1b", "#5a189a",
+        "#00b4d8", "#ff7f51", "#ffb3c6", "#250902", "#ef233c", "#192bc2"
+    ]);
+}
+
+// Assign a color to a group if not already assigned
+function assignGroupColor(group) {
+    if (!(group in groupColorMap)) {
+        groupColorMap[group] = myColors[colorIndexCounter % myColors.length];
+        colorIndexCounter++;
+    }
+}
+
+// Remove colors for groups no longer used
+function cleanupGroupColors(allGroups) {
+    Object.keys(groupColorMap).forEach(group => {
+        if (!allGroups.includes(group)) {
+            delete groupColorMap[group];
+        }
+    });
+}
+
 // Tooltip animation on hover
+let tooltipTimeout = null;
 function addTooltipBehavior(selection, color, tooltip, groupDisplayMap) {
-    let tooltipTimeout;
 
     selection
         .on("mouseover", (event, d) => {
@@ -840,9 +889,7 @@ function renderGraph (data, shouldZoom, groupDisplayMap) {
 
     // TOOLTIP
     // Hovering Tooltip
-    const tooltip = d3.select("body")
-        .append("div")
-        .attr("class", "node-tooltip")
+    const tooltip = d3.select(".node-tooltip");
 
     // Tooltip Animation
     addTooltipBehavior(node, color, tooltip, groupDisplayMap);
@@ -882,30 +929,9 @@ function renderGraph (data, shouldZoom, groupDisplayMap) {
     });
 
     
-    // Panning and Zooming
-    const panLimit = 300;
     
     // Setting up zoom behaviour
-    const zoom = d3.zoom()
-        .scaleExtent([0.5, 15])       // 0.5x zoom till 15x zoom
-        .on("zoom", (event) => {
-            // (t.k, t.x, t.y) -> (Scale/Zoom factor, Horizontal pan, Vertical pan)
-            const t = event.transform;     
-
-            // Setting pan limit according to scale factor
-            const scaledPanLimit = panLimit * t.k;     
-
-            // Clamping
-            // Clamp the pan values between -scaledPanLimit and +scaledPanLimit
-            const limitedX = Math.max(Math.min(t.x, scaledPanLimit), -scaledPanLimit);
-            const limitedY = Math.max(Math.min(t.y, scaledPanLimit), -scaledPanLimit);
-            
-            container.attr("transform", `translate(${limitedX},${limitedY}) scale(${t.k})`);
-        });
-    
-    // Apply zoom behaviour
-    svg.call(zoom);
-    
+    const zoom = graphState.zoom;
     // Double click -> Reset zoom
     svg.on("dblclick.zoom", null);
     svg.on("dblclick.zoomToFit", () => zoomToFit(svg, nodes, width, height, zoom));
@@ -922,3 +948,10 @@ function renderGraph (data, shouldZoom, groupDisplayMap) {
     graphState.currentLinks = links;
 
 };
+
+
+
+
+
+
+
