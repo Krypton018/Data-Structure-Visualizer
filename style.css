@@ -61,7 +61,7 @@ main {
 }
 
 .node-data {
-    margin-bottom: 2.5rem;
+    margin-bottom: 1.5rem;
 }
 
 /* Text Input Area */
@@ -78,7 +78,7 @@ main {
 }
 
 #edges-input {
-    height: 32vh;
+    height: 26vh;
 }
 
 
@@ -160,6 +160,35 @@ main {
 
 
 
+/* Toggle boxes */
+.toggle-box {
+    display: flex;
+    gap: 1rem;
+    margin: 1.5rem 0;
+    justify-content: space-evenly;
+    align-items: flex-start;
+}
+
+.toggle-btn {
+    background: #222;
+    color: #fff;
+    border: 2px solid #46f293;
+    border-radius: 8px;
+    padding: 0.5em 1.2em;
+    font-size: 1rem;
+    height: 3rem;
+    width: 7.2rem;
+    cursor: pointer;
+    transition: background 0.2s, color 0.2s;
+    outline: none;
+}
+
+.toggle-btn.active {
+    background: #46f293;
+    color: #222;
+    font-weight: bold;
+    border: 2px solid #46f293;
+}
 
 
 

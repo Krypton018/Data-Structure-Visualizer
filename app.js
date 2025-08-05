@@ -30,7 +30,11 @@ let graphState = {
 
     // Dimensions
     width: 928,
-    height: 680
+    height: 680,
+
+     // Graph mode flags
+    isWeighted: false,   // Show edge weights
+    isDirected: false    // Show arrows for edges
 };
 
 // Error markers IDs for Ace Error Annotations
@@ -96,8 +100,22 @@ function handleEdgeInput() {
 nodesEditor.session.on("change", handleNodeInput);
 edgesEditor.session.on("change", handleEdgeInput);
 
+// Toggle for weighted edges
+document.getElementById('toggle-weighted').addEventListener('click', function() {
+    this.classList.toggle('active');
+    graphState.isWeighted = this.classList.contains('active');
+    updateGraphFromInput();
 
+});
 
+// Toggle for directed edges
+document.getElementById('toggle-directed').addEventListener('click', function() {
+    this.classList.toggle('active');
+    graphState.isDirected = this.classList.contains('active');
+    updateGraphFromInput();
+    
+
+});
 
 
 // ===================================================
@@ -275,7 +293,9 @@ function buildAdjacencyList(validNodes, validEdges) {
     // Fill neighbors from validEdges
     validEdges.forEach(([u, v]) => {
         graph[u].push(v);
-        graph[v].push(u);  // Undirected graph
+        if (!graphState.isDirected) {
+            graph[v].push(u);  // Undirected graph
+        }
     });
 
     return graph;
@@ -776,6 +796,36 @@ function zoomToFit(svg, nodes, width, height, zoom) {
 // updates the simulation tick-by-tick.
 // ===================================================
 
+function updateArrowheads(arrowSelection) {
+    arrowSelection.attr("points", function(d) {
+        const dx = d.target.x - d.source.x;
+        const dy = d.target.y - d.source.y;
+        const len = Math.sqrt(dx * dx + dy * dy);
+
+        const arrowLength = 4.5;
+        const arrowWidth = 4.5;
+        const offset = 4.58;
+
+        const tipX = d.target.x - dx * offset / len;
+        const tipY = d.target.y - dy * offset / len;
+
+        const perpX = -dy / len;
+        const perpY = dx / len;
+
+        const p1x = tipX;
+        const p1y = tipY;
+        const p2x = tipX - dx * arrowLength / len + perpX * arrowWidth / 2;
+        const p2y = tipY - dy * arrowLength / len + perpY * arrowWidth / 2;
+        const p3x = tipX - dx * arrowLength / len - perpX * arrowWidth / 2;
+        const p3y = tipY - dy * arrowLength / len - perpY * arrowWidth / 2;
+
+        return `${p1x},${p1y} ${p2x},${p2y} ${p3x},${p3y}`;
+    })
+    .style("fill", "#46f293")
+    .style("visibility", graphState.isDirected ? "visible" : "hidden");
+}
+
+
 // Rendering the graph
 function renderGraph (data, shouldZoom, groupDisplayMap) {
 
@@ -838,6 +888,7 @@ function renderGraph (data, shouldZoom, groupDisplayMap) {
         simulation.alpha(1).restart();
     }
 
+    
 
     // CREATING ELEMENTS
     const svg = graphState.svg;
@@ -849,9 +900,21 @@ function renderGraph (data, shouldZoom, groupDisplayMap) {
         .selectAll("line")
         .data(links, d => `${d.source.id}-${d.target.id}`)  
         .join("line")
-        .attr("class", "link-edge");
+        .attr("class", "link-edge")
+    
+    // Create arrows (triangles) for each edge
+    const arrow = graphState.linkLayer
+        .selectAll(".edge-arrow")
+        .data(links, d => `${d.source.id}-${d.target.id}`)
+        .join("polygon")
+        .attr("class", "edge-arrow")
+        .attr("points", "0,0 2,4 -2,4") // Initial dummy points, will update on tick
+        .style("fill", "#333")
+        .style("visibility", graphState.isDirected ? "visible" : "hidden");
 
-
+    // Static update for arrowheads
+    updateArrowheads(arrow);
+    
     // Create nodes
     const node = graphState.nodeLayer
         .selectAll("circle")
@@ -919,6 +982,10 @@ function renderGraph (data, shouldZoom, groupDisplayMap) {
             .attr("x", d => d.x)
             .attr("y", d => d.y);   
 
+
+        // Update arrow position and orientation (dynamic update)
+        updateArrowheads(arrow);
+
         
         // Wait for 20 ticks and them zoom in to fit to scale
         if (shouldZoom && !hasZoomed && ++tickCount === 20) {
@@ -948,8 +1015,6 @@ function renderGraph (data, shouldZoom, groupDisplayMap) {
     graphState.currentLinks = links;
 
 };
-
-
 
 
 
