@@ -785,6 +785,51 @@ function zoomToFit(svg, nodes, width, height, zoom) {
 }
 
 
+// Helps calculating the coordinates of the arrowhead for directed graphs
+function updateArrowheads(arrowSelection) {
+    arrowSelection.attr("points", function(d) {
+        // Calculate horizontal and vertical distance between target and source nodes
+        // (dx, dy) -> Direction vector
+        const dx = d.target.x - d.source.x;
+        const dy = d.target.y - d.source.y;
+        // Calculating edge length
+        const len = Math.sqrt(dx * dx + dy * dy);
+
+        // Arrowhead dimensions and position
+        const arrowLength = 4.5;
+        const arrowWidth = 4.5;
+        const offset = 4.58;    // Offset from node center
+
+        // Finding the tip of the arrowhead
+        // (dx/len, dy/len) -> Unit vector
+        // (dx*offset/len, dy*offset/len) -> Unit vector scaled by offset
+        const tipX = d.target.x - (dx/len)*offset;
+        const tipY = d.target.y - (dy/len)* offset;
+
+        // Perpendicular to the given edge line
+        // (perpX, perpY) -> Unit vector perpendicular to (dx, dy)
+        const perpX = -dy/len;
+        const perpY = dx/len;
+
+        // Coordinate 1
+        const p1x = tipX;
+        const p1y = tipY;
+        // Coordinate 2
+        // tipX - (arrowLength * dx/len) + (perpX * arrowWidth/2)
+        // original place -> go downwards by arrowLength -> go perpendicular by arrowWidth/2
+        const p2x = tipX - (dx/len)*arrowLength + perpX*(arrowWidth/2);
+        const p2y = tipY - (dy/len)*arrowLength + perpY*(arrowWidth/2);
+        // Coordinate 3
+        // tipX - (arrowLength * dx/len) - (perpX * arrowWidth/2)
+        // original place -> go downwards by arrowLength -> go perpendicular by arrowWidth/2 in the other direction
+        const p3x = tipX - (dx/len)*arrowLength - perpX*(arrowWidth/2);
+        const p3y = tipY - (dy/len)*arrowLength - perpY*(arrowWidth/2);
+
+        return `${p1x},${p1y} ${p2x},${p2y} ${p3x},${p3y}`;
+    })
+    .style("fill", "#46f293")
+    .style("visibility", graphState.isDirected ? "visible" : "hidden");
+}
 
 
 // ===================================================
@@ -796,36 +841,7 @@ function zoomToFit(svg, nodes, width, height, zoom) {
 // updates the simulation tick-by-tick.
 // ===================================================
 
-function updateArrowheads(arrowSelection) {
-    arrowSelection.attr("points", function(d) {
-        const dx = d.target.x - d.source.x;
-        const dy = d.target.y - d.source.y;
-        const len = Math.sqrt(dx * dx + dy * dy);
-
-        const arrowLength = 4.5;
-        const arrowWidth = 4.5;
-        const offset = 4.58;
-
-        const tipX = d.target.x - dx * offset / len;
-        const tipY = d.target.y - dy * offset / len;
-
-        const perpX = -dy / len;
-        const perpY = dx / len;
-
-        const p1x = tipX;
-        const p1y = tipY;
-        const p2x = tipX - dx * arrowLength / len + perpX * arrowWidth / 2;
-        const p2y = tipY - dy * arrowLength / len + perpY * arrowWidth / 2;
-        const p3x = tipX - dx * arrowLength / len - perpX * arrowWidth / 2;
-        const p3y = tipY - dy * arrowLength / len - perpY * arrowWidth / 2;
-
-        return `${p1x},${p1y} ${p2x},${p2y} ${p3x},${p3y}`;
-    })
-    .style("fill", "#46f293")
-    .style("visibility", graphState.isDirected ? "visible" : "hidden");
-}
-
-
+let directedTrigger = false;
 // Rendering the graph
 function renderGraph (data, shouldZoom, groupDisplayMap) {
 
@@ -883,16 +899,19 @@ function renderGraph (data, shouldZoom, groupDisplayMap) {
     if (links.length === 0) simulation.force("collide", d3.forceCollide().radius(15));
     else simulation.force("collide", null);
     
-    //  Restart only if structure changed
-    if (shouldZoom) {
+    //  Restart only if structure changed or directedToggle for first time
+    if (shouldZoom || (graphState.isDirected && !directedTrigger)) {
         simulation.alpha(1).restart();
     }
+
+    // Toggling directedTrigger
+    directedTrigger = graphState.isDirected;
+
 
     
 
     // CREATING ELEMENTS
     const svg = graphState.svg;
-    const container = graphState.container;
 
 
     // Create edges
