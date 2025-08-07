@@ -251,6 +251,7 @@ main {
 .link-edge {
     stroke: #46f293;
     stroke-width: 1;
+    fill: none;
 }
 
 /* Node Label */

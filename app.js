@@ -238,6 +238,7 @@ function validateEdges(text, validNodes) {
     const lines = text.split('\n');          // Getting each edge separately
     const edgeErrors = [];                   // Keeping track of all errors
     const edges = [];                        // Keeping track of all edges
+    const seenEdges = new Set();             // Keeping track of all the seen edges (to filter out duplicate edges)
     const validRegex = /^[a-zA-Z0-9_]+$/;    // For valid edge names
 
     lines.forEach((rawLine, i) => {
@@ -264,15 +265,28 @@ function validateEdges(text, validNodes) {
         }
 
         // Check that both nodes exist
-        else if (!validNodes.includes(u) || !validNodes.includes(v)) {
+        if (!validNodes.includes(u) || !validNodes.includes(v)) {
             edgeErrors.push({ line: i, reason: 'Node in edge does not exist' });
             return;
         }
 
+        // Handle duplicate edges
+        let key;
+        if (graphState.isDirected) {
+            key = `${u}->${v}`;
+        } else {
+            // Undirected edge: normalize A-B and B-A
+            key = [u, v].sort().join('--');
+        }
+
+        if (seenEdges.has(key)) {
+            edgeErrors.push({ line: i, reason: 'Duplicate edge' });
+            return;
+        }
+
+        seenEdges.add(key);
         // Add valid edge to edges
-        else {
-            edges.push([u, v]); 
-        } 
+        edges.push([u, v]); 
     });
 
     return {
@@ -355,13 +369,36 @@ function assignGroups(validNodes, graph) {
 }
 
 // Formatting Edges
+// {source, target, edgevalue, curved, direction(if curved)}
 function formatEdges(validEdges) {
-    return validEdges.map(([source, target]) => ({
-        source,
-        target,
-        value: 1
-    }));
+    const edgeMap = new Map();
+
+    // First pass: record all edge keys
+    for (const [source, target] of validEdges) {
+        const key = `${source}->${target}`;
+        edgeMap.set(key, { source, target });
+    }
+
+    const result = [];
+
+    for (const [source, target] of validEdges) {
+        const reverseKey = `${target}->${source}`;
+        const isBidirectional = edgeMap.has(reverseKey);
+
+        // Prevent duplicate reverse edges
+        if (isBidirectional && source > target) continue;
+
+        if (isBidirectional) {
+            result.push({ source, target, value: 1, curved: true, direction: 1 });
+            result.push({ source: target, target: source, value: 1, curved: true, direction: -1 });
+        } else {
+            result.push({ source, target, value: 1, curved: false });
+        }
+    }
+
+    return result;
 }
+
 
 
 
@@ -784,24 +821,47 @@ function zoomToFit(svg, nodes, width, height, zoom) {
         );
 }
 
+// Helps rotate a point about a centre by some angle
+function rotatePoint(p1x, p1y, cx, cy, angleDeg) {
+    const angleRad = angleDeg * Math.PI / 180;
+
+    // Vector going from center to point 
+    const dx = p1x - cx;
+    const dy = p1y - cy;
+
+    // Apply Rotation
+    // Rotation of vector in 2D Plane formula : 
+    // x_new = x*cos(θ) - y*sin(θ)
+    // y_new = x*sin(θ) + y*cos(θ)
+    const qx = dx * Math.cos(angleRad) - dy * Math.sin(angleRad);
+    const qy = dx * Math.sin(angleRad) + dy * Math.cos(angleRad);
+
+    // Translate back
+    return {
+        x: qx + cx,
+        y: qy + cy
+    };
+}
+
 
 // Helps calculating the coordinates of the arrowhead for directed graphs
 function updateArrowheads(arrowSelection) {
     arrowSelection.attr("points", function(d) {
+        // Arrowhead dimensions and position
+        const arrowLength = 4.5;
+        const arrowWidth = 5;
+        const offset = 4.48;    // Offset from node center
+
+        // STRAIGHT EDGES
         // Calculate horizontal and vertical distance between target and source nodes
-        // (dx, dy) -> Direction vector
+        // (dx, dy) -> Direction vector  (source -> target)
         const dx = d.target.x - d.source.x;
         const dy = d.target.y - d.source.y;
         // Calculating edge length
         const len = Math.sqrt(dx * dx + dy * dy);
 
-        // Arrowhead dimensions and position
-        const arrowLength = 4.5;
-        const arrowWidth = 4.5;
-        const offset = 4.58;    // Offset from node center
-
         // Finding the tip of the arrowhead
-        // (dx/len, dy/len) -> Unit vector
+        // (dx/len, dy/len) -> Unit vector in the direction of (dx, dy)
         // (dx*offset/len, dy*offset/len) -> Unit vector scaled by offset
         const tipX = d.target.x - (dx/len)*offset;
         const tipY = d.target.y - (dy/len)* offset;
@@ -812,24 +872,96 @@ function updateArrowheads(arrowSelection) {
         const perpY = dx/len;
 
         // Coordinate 1
-        const p1x = tipX;
-        const p1y = tipY;
+        let p1x = tipX;
+        let p1y = tipY;
         // Coordinate 2
         // tipX - (arrowLength * dx/len) + (perpX * arrowWidth/2)
         // original place -> go downwards by arrowLength -> go perpendicular by arrowWidth/2
-        const p2x = tipX - (dx/len)*arrowLength + perpX*(arrowWidth/2);
-        const p2y = tipY - (dy/len)*arrowLength + perpY*(arrowWidth/2);
+        let p2x = tipX - (dx/len)*arrowLength + perpX*(arrowWidth/2);
+        let p2y = tipY - (dy/len)*arrowLength + perpY*(arrowWidth/2);
         // Coordinate 3
         // tipX - (arrowLength * dx/len) - (perpX * arrowWidth/2)
         // original place -> go downwards by arrowLength -> go perpendicular by arrowWidth/2 in the other direction
-        const p3x = tipX - (dx/len)*arrowLength - perpX*(arrowWidth/2);
-        const p3y = tipY - (dy/len)*arrowLength - perpY*(arrowWidth/2);
+        let p3x = tipX - (dx/len)*arrowLength - perpX*(arrowWidth/2);
+        let p3y = tipY - (dy/len)*arrowLength - perpY*(arrowWidth/2);
+
+        // Align the arrow with the tangent at the point where the bezier curve just leaves the node boundary
+        if (d.curved) {
+            // Temporary path to simulate the actual path for simulation
+            const tempPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+            const dr = Math.sqrt(dx * dx + dy * dy) / 1.5; // Path radius    (1.5) -> constant
+            tempPath.setAttribute("d", `M${d.source.x},${d.source.y} A${dr},${dr} 0 0,1 ${d.target.x},${d.target.y}`);
+
+            // Getting the a point from the end of the curve that is offset away and offset-1 away
+            // so that we can calculate a tangent
+            const pathLength = tempPath.getTotalLength();
+            const tip = tempPath.getPointAtLength(pathLength - offset);
+            const back = tempPath.getPointAtLength(pathLength - offset - 1);
+
+            // calculating tangent vector and tangent angle
+            const tx = tip.x - back.x;
+            const ty = tip.y - back.y;
+            const angle = Math.atan2(ty, tx);
+
+            // Coordinate 1
+            const p1 = tip;
+
+            // Raw Coordinates 2 and 3
+            // (cos(θ), sin(θ)) -> Unit vector in direction of tangent
+            // (sin(θ), -cos(θ)) -> Unit vector in perpendicular direction to tangent
+            const rawP2 = {
+                x: p1.x - arrowLength*Math.cos(angle) + (arrowWidth / 2)*Math.sin(angle),
+                y: p1.y - arrowLength*Math.sin(angle) + (arrowWidth / 2)*(-Math.cos(angle))
+            };
+            const rawP3 = {
+                x: p1.x - arrowLength*Math.cos(angle) - (arrowWidth / 2)*Math.sin(angle),
+                y: p1.y - arrowLength*Math.sin(angle) - (arrowWidth / 2)*(-Math.cos(angle))
+            };
+
+            // Rotating the base about the node center (better visual)
+            const baseRotation = -3;  
+            // Rotated Coordinates 2 and 3
+            const p2 = rotatePoint(rawP2.x, rawP2.y, p1.x, p1.y, baseRotation);
+            const p3 = rotatePoint(rawP3.x, rawP3.y, p1.x, p1.y, baseRotation);
+
+            p1x = p1.x; p1y = p1.y;
+            p2x = p2.x; p2y = p2.y;
+            p3x = p3.x; p3y = p3.y;
+        }
+        
+
 
         return `${p1x},${p1y} ${p2x},${p2y} ${p3x},${p3y}`;
     })
     .style("fill", "#46f293")
     .style("visibility", graphState.isDirected ? "visible" : "hidden");
 }
+
+// Helps creating bezier curved edges for loops
+function updateLinkPaths(link) {
+    link.attr("d", d => {
+        const { x: x1, y: y1 } = d.source;
+        const { x: x2, y: y2 } = d.target;
+
+        if (!d.curved) {
+            // M -> moves the pen to x1, y1
+            // L -> draws a line till x2, y2
+            return `M${x1},${y1} L${x2},${y2}`;  // straight edge
+        }
+
+        // vector from source to target
+        const dx = x2 - x1;
+        const dy = y2 - y1;
+        // Curve radius
+        const dr = Math.sqrt(dx * dx + dy * dy) / 1.5;   // (1.5) -> constant
+        const sweep = 1   // Bend clockwise
+
+        // M -> moves pen to x1, y1
+        // A -> radii of the ellipse, x-axis rotation, short arc, sweep direction, destination (x2,y2)
+        return `M${x1},${y1} A${dr},${dr} 0 0,${sweep} ${x2},${y2}`;
+    });
+}
+
 
 
 // ===================================================
@@ -916,10 +1048,13 @@ function renderGraph (data, shouldZoom, groupDisplayMap) {
 
     // Create edges
     const link = graphState.linkLayer
-        .selectAll("line")
+        .selectAll("path")
         .data(links, d => `${d.source.id}-${d.target.id}`)  
-        .join("line")
+        .join("path")
         .attr("class", "link-edge")
+
+    // Static update for edges
+    updateLinkPaths(link);
     
     // Create arrows (triangles) for each edge
     const arrow = graphState.linkLayer
@@ -985,11 +1120,8 @@ function renderGraph (data, shouldZoom, groupDisplayMap) {
 
     simulation.on("tick", () => {
         // Update edge position
-        link
-            .attr("x1", d => d.source.x)
-            .attr("y1", d => d.source.y)
-            .attr("x2", d => d.target.x)
-            .attr("y2", d => d.target.y);
+        updateLinkPaths(link);
+
 
         // Update vertex position
         node
