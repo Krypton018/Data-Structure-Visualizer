@@ -25,8 +25,13 @@ let graphState = {
     // Active graph data
     // Node Format : { id: "A", group: "G1", x: 100, y:100, vx: 200, vy: 200 }
     currentNodes: [],           // Current Node Data
-    // Link Format : { source: "A", target: "B", value: 1 }
+    // Link Format : 
+    // Straight Link : { source: "A", target: "B", value: 1, curved: false }
+    // Self Link : { source: "A", target: "B", value: 1, curved: false, loopAngle: 0.5 }
+    // Curved Link : { source: "A", target: "B", value: 1, curved: true, direction: 1 }  
     currentLinks: [],           // Current Link Data
+    // Note : After passing through the simulation, the source and target node strings become entire node objects
+    // link : { source: {id: "A", . . .}, target: {id: "B", . . .}, value: 1, . . . }
 
     // Dimensions
     width: 928,
@@ -843,50 +848,73 @@ function rotatePoint(p1x, p1y, cx, cy, angleDeg) {
     };
 }
 
-
 // Helps calculating the coordinates of the arrowhead for directed graphs
 function updateArrowheads(arrowSelection) {
-    arrowSelection.attr("points", function(d) {
+    arrowSelection.attr("points", d => {
         // Arrowhead dimensions and position
         const arrowLength = 4.5;
         const arrowWidth = 5;
         const offset = 4.48;    // Offset from node center
 
+        // Arrow Coordinates
+        let p1, p2, p3;
+
+        // SELF EDGE
+        
+
+
         // STRAIGHT EDGES
-        // Calculate horizontal and vertical distance between target and source nodes
-        // (dx, dy) -> Direction vector  (source -> target)
-        const dx = d.target.x - d.source.x;
-        const dy = d.target.y - d.source.y;
-        // Calculating edge length
-        const len = Math.sqrt(dx * dx + dy * dy);
+        if (!d.curved) {
+            // Calculate horizontal and vertical distance between target and source nodes
+            // (dx, dy) -> Direction vector  (source -> target)
+            const dx = d.target.x - d.source.x;
+            const dy = d.target.y - d.source.y;
+            // Calculating edge length (vector magnitude)
+            const len = Math.sqrt(dx * dx + dy * dy);
+    
+            // Unit vector in the direction of the edge line
+            // (dx/len, dy/len) -> Unit vector in the direction of (dx, dy)
+            const unitX = dx/len;
+            const unitY = dy/len;
+            
+            // Finding the tip of the arrowhead
+            // (unitX*offset, unitY*offset) -> Unit vector scaled by offset
+            const tipX = d.target.x - unitX*offset;
+            const tipY = d.target.y - unitY* offset;
+    
+            // Perpendicular unit vector to the given edge line
+            // (perpX, perpY) -> Unit vector perpendicular to (dx, dy) (90 degree counter clockwise)
+            const perpX = -dy/len;
+            const perpY = dx/len;
+    
+            // Coordinate 1
+            p1 = {
+                x: tipX,
+                y: tipY
+            };
+            // Coordinate 2
+            // tipX - (arrowLength * unitX) + (perpX * arrowWidth/2)
+            // original place -> go downwards by arrowLength -> go perpendicular by arrowWidth/2
+            p2 = {
+                x: tipX - unitX*arrowLength + perpX*(arrowWidth/2),
+                y: tipY - unitY*arrowLength + perpY*(arrowWidth/2)
+            };
+            // Coordinate 3
+            // tipX - (arrowLength * unitX) - (perpX * arrowWidth/2)
+            // original place -> go downwards by arrowLength -> go perpendicular by arrowWidth/2 in the other direction
+            p3 = {
+                x: tipX - unitX*arrowLength - perpX*(arrowWidth/2),
+                y: tipY - unitY*arrowLength - perpY*(arrowWidth/2)
+            };
 
-        // Finding the tip of the arrowhead
-        // (dx/len, dy/len) -> Unit vector in the direction of (dx, dy)
-        // (dx*offset/len, dy*offset/len) -> Unit vector scaled by offset
-        const tipX = d.target.x - (dx/len)*offset;
-        const tipY = d.target.y - (dy/len)* offset;
+        }
 
-        // Perpendicular to the given edge line
-        // (perpX, perpY) -> Unit vector perpendicular to (dx, dy)
-        const perpX = -dy/len;
-        const perpY = dx/len;
-
-        // Coordinate 1
-        let p1x = tipX;
-        let p1y = tipY;
-        // Coordinate 2
-        // tipX - (arrowLength * dx/len) + (perpX * arrowWidth/2)
-        // original place -> go downwards by arrowLength -> go perpendicular by arrowWidth/2
-        let p2x = tipX - (dx/len)*arrowLength + perpX*(arrowWidth/2);
-        let p2y = tipY - (dy/len)*arrowLength + perpY*(arrowWidth/2);
-        // Coordinate 3
-        // tipX - (arrowLength * dx/len) - (perpX * arrowWidth/2)
-        // original place -> go downwards by arrowLength -> go perpendicular by arrowWidth/2 in the other direction
-        let p3x = tipX - (dx/len)*arrowLength - perpX*(arrowWidth/2);
-        let p3y = tipY - (dy/len)*arrowLength - perpY*(arrowWidth/2);
-
+        // CURVED EDGES
         // Align the arrow with the tangent at the point where the bezier curve just leaves the node boundary
-        if (d.curved) {
+        else {
+            // (dx, dy) -> Difference between nodes (Direction vector from source to target)
+            const dx = d.target.x - d.source.x;
+            const dy = d.target.y - d.source.y;
             // Temporary path to simulate the actual path for simulation
             const tempPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
             const dr = Math.sqrt(dx * dx + dy * dy) / 1.5; // Path radius    (1.5) -> constant
@@ -898,57 +926,149 @@ function updateArrowheads(arrowSelection) {
             const tip = tempPath.getPointAtLength(pathLength - offset);
             const back = tempPath.getPointAtLength(pathLength - offset - 1);
 
-            // calculating tangent vector and tangent angle
+            // Calculating tangent vector
             const tx = tip.x - back.x;
             const ty = tip.y - back.y;
-            const angle = Math.atan2(ty, tx);
+            // Magnitude of tangent vector
+            const tMag = Math.sqrt(tx * tx + ty * ty);
+
+            // Unit vector in the direction of tangent vector
+            const unitX = tx / tMag;
+            const unitY = ty / tMag;
+
+            // Unit vector perpendicular to tangent vector (90 degree counter clockwise)
+            const perpX = -unitY;
+            const perpY = unitX;
+
 
             // Coordinate 1
-            const p1 = tip;
+            p1 = tip;
 
             // Raw Coordinates 2 and 3
-            // (cos(θ), sin(θ)) -> Unit vector in direction of tangent
-            // (sin(θ), -cos(θ)) -> Unit vector in perpendicular direction to tangent
+            // Same logic as straight edge
             const rawP2 = {
-                x: p1.x - arrowLength*Math.cos(angle) + (arrowWidth / 2)*Math.sin(angle),
-                y: p1.y - arrowLength*Math.sin(angle) + (arrowWidth / 2)*(-Math.cos(angle))
+                x: p1.x - arrowLength * unitX + (arrowWidth / 2) * perpX,
+                y: p1.y - arrowLength * unitY + (arrowWidth / 2) * perpY
             };
             const rawP3 = {
-                x: p1.x - arrowLength*Math.cos(angle) - (arrowWidth / 2)*Math.sin(angle),
-                y: p1.y - arrowLength*Math.sin(angle) - (arrowWidth / 2)*(-Math.cos(angle))
+                x: p1.x - arrowLength * unitX - (arrowWidth / 2) * perpX,
+                y: p1.y - arrowLength * unitY - (arrowWidth / 2) * perpY
             };
 
             // Rotating the base about the node center (better visual)
             const baseRotation = -3;  
             // Rotated Coordinates 2 and 3
-            const p2 = rotatePoint(rawP2.x, rawP2.y, p1.x, p1.y, baseRotation);
-            const p3 = rotatePoint(rawP3.x, rawP3.y, p1.x, p1.y, baseRotation);
-
-            p1x = p1.x; p1y = p1.y;
-            p2x = p2.x; p2y = p2.y;
-            p3x = p3.x; p3y = p3.y;
+            p2 = rotatePoint(rawP2.x, rawP2.y, p1.x, p1.y, baseRotation);
+            p3 = rotatePoint(rawP3.x, rawP3.y, p1.x, p1.y, baseRotation);
         }
         
 
 
-        return `${p1x},${p1y} ${p2x},${p2y} ${p3x},${p3y}`;
+        return `${p1.x},${p1.y} ${p2.x},${p2.y} ${p3.x},${p3.y}`;
     })
     .style("fill", "#46f293")
     .style("visibility", graphState.isDirected ? "visible" : "hidden");
 }
 
-// Helps creating bezier curved edges for loops
+// Helps creating bezier curved edges, self loops, and straight edges
 function updateLinkPaths(link) {
     link.attr("d", d => {
+        
+        // SELF-LOOP
+        if (d.source.id === d.target.id) {
+            // Center of the node
+            const { x: cx, y: cy } = d.source;
+            const loopRadius = 7.5;
+            const loopOffset = 7.5;
+
+            // Find all other connected edges (via raw data OR formatted D3 data id)
+            const connectedEdges = graphState.currentLinks.filter(e =>
+                (e.source.id || e.source) === d.source.id && e.target.id !== d.source.id ||
+                (e.target.id || e.target) === d.source.id && e.source.id !== d.source.id
+            );
+
+            // Finding all the angles between current node and neighbors
+            let angles = connectedEdges.map(e => {
+                // Finding all the other connected node
+                const otherNode = (e.source.id || e.source) === d.source.id ? e.target : e.source;
+                // Finding the coords of the other node
+                const ox = otherNode.x ?? 0;
+                const oy = otherNode.y ?? 0;
+                // Angle between the other nodes and the current nodes' center
+                // (All angles are between -π and +π)
+                return Math.atan2(oy - cy, ox - cx);   // atan2 -> returns tan inverse with sign 
+            });
+
+            // Sort angles  (So they are in clockwise manner from -π to +π)
+            angles.sort((a, b) => a - b);
+
+            // Find largest gap between consecutive edges
+            let maxGap = 0;
+            let bestAngle = -Math.PI / 2; // default angle -> Upwards
+            if (angles.length > 0) {
+                for (let i = 0; i < angles.length; i++) {
+                    // First angle
+                    const a1 = angles[i];
+                    // Second angle (wrap around for the last angle to match with the very first angle)
+                    // Add 2π to the very first angle (wrap around) when calculating gap with the last angle
+                    const a2 = angles[(i + 1) % angles.length] + (i+1 === angles.length ? Math.PI * 2 : 0);
+                    const gap = a2 - a1;
+                    if (gap > maxGap) {
+                        maxGap = gap;
+                        bestAngle = a1 + gap / 2;  // Best angle is midway in the largest gap
+                    }
+                }
+            }
+
+            // Smooth interpolation between old and new angles
+            // Adding link angle
+            if (d.loopAngle === undefined) d.loopAngle = bestAngle;
+            // Linear Interpolation Factor (Defines how quickly the loop moves to match the best angle)
+            // Say, 0.15 -> move 15% of the entire way
+            const lerpFactor = 0.09; // smaller = smoother
+            let diff = bestAngle - d.loopAngle;
+
+            // Normalize to shortest rotation (Keep the angle between -π and +π)
+            if (diff > Math.PI) diff -= 2 * Math.PI;
+            if (diff < -Math.PI) diff += 2 * Math.PI;
+
+            // Moving towards the desired angle on each tick (by lerpFactor)
+            // (diff already takes care of sign/direction)
+            d.loopAngle += (diff*lerpFactor);
+
+            // Offset the loop’s circle center from the node in bestAngle direction
+            // (cos(d.loopAngle), sin(d.loopAngle)) -> Unit vector in the direction of d.loopAngle
+            // Offset Vector = Center Vector + (loopOffset * Unit vector in direction of d.loopAngle)
+            const offsetX = cx + loopOffset * Math.cos(d.loopAngle);
+            const offsetY = cy + loopOffset * Math.sin(d.loopAngle);
+            // So (offsetX, offsetY) -> Center of the loop
+
+            // Draw a full circle using two arcs
+            // M -> Move pen to (offsetX + loopRadius, offsetY) -> Rightmost point on the circle
+            // A -> draw arc 
+            // First draw an arc from the rightmost point towards the leftmost point
+            // Then draw an arc from the leftmost point towards the rightmost point
+            return `
+                M ${offsetX + loopRadius},${offsetY}
+                A ${loopRadius},${loopRadius} 0 1,1 ${offsetX - loopRadius},${offsetY}
+                A ${loopRadius},${loopRadius} 0 1,1 ${offsetX + loopRadius},${offsetY}
+            `;
+
+        }
+
+
+
         const { x: x1, y: y1 } = d.source;
         const { x: x2, y: y2 } = d.target;
 
+        // STRAIGHT EDGE
         if (!d.curved) {
             // M -> moves the pen to x1, y1
             // L -> draws a line till x2, y2
             return `M${x1},${y1} L${x2},${y2}`;  // straight edge
         }
 
+        // CURVED EDGE
         // vector from source to target
         const dx = x2 - x1;
         const dy = y2 - y1;
@@ -957,6 +1077,7 @@ function updateLinkPaths(link) {
         const sweep = 1   // Bend clockwise
 
         // M -> moves pen to x1, y1
+        // A -> draw an arc
         // A -> radii of the ellipse, x-axis rotation, short arc, sweep direction, destination (x2,y2)
         return `M${x1},${y1} A${dr},${dr} 0 0,${sweep} ${x2},${y2}`;
     });
