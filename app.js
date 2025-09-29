@@ -860,11 +860,80 @@ function updateArrowheads(arrowSelection) {
         let p1, p2, p3;
 
         // SELF EDGE
-        
+        if (d.source.id === d.target.id) {
+            // Same values as updateLinkPaths
+            const cx = d.source.x;
+            const cy = d.source.y;
+            const loopRadius = 7.5;
+            const loopOffset = 7.5;
 
+            // Offset loop center in direction of d.loopAngle (already computed in updateLinkPaths)
+            const offsetX = cx + loopOffset * Math.cos(d.loopAngle ?? -Math.PI / 2);
+            const offsetY = cy + loopOffset * Math.sin(d.loopAngle ?? -Math.PI / 2);
+
+            // Vector from loop center to node center
+            const dx = cx - offsetX;
+            const dy = cy - offsetY;
+            const mag = Math.sqrt(dx*dx + dy*dy);
+            // Unit vector
+            const ux = dx / mag;
+            const uy = dy / mag;
+
+            // Starting point on circle (toward node)
+            const startX = offsetX + ux * loopRadius;
+            const startY = offsetY + uy * loopRadius;
+
+            // Opposite point on circle (180° away)
+            const oppX = offsetX - ux * loopRadius;
+            const oppY = offsetY - uy * loopRadius;
+
+            // Build circle path starting at node-facing side
+            const tempPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+            tempPath.setAttribute("d", `
+                M ${startX},${startY}
+                A ${loopRadius},${loopRadius} 0 1,1 ${oppX},${oppY}
+                A ${loopRadius},${loopRadius} 0 1,1 ${startX},${startY}
+            `);
+
+            // Path length
+            const pathLength = tempPath.getTotalLength();
+
+            // Get points slightly inside the end of the loop
+            const tip = tempPath.getPointAtLength(pathLength - offset);
+            const back = tempPath.getPointAtLength(pathLength - offset - 1);
+
+            // Tangent vector
+            const tx = tip.x - back.x;
+            const ty = tip.y - back.y;
+            const tMag = Math.sqrt(tx * tx + ty * ty);
+
+            // Normalize tangent (Unit vector)
+            const unitX = tx / tMag;
+            const unitY = ty / tMag;
+
+            // Perpendicular (Unit vector)
+            const perpX = -unitY;
+            const perpY = unitX;
+
+            // Coordinates
+            p1 = tip;
+            const rawP2 = {
+                x: p1.x - arrowLength * unitX + (arrowWidth / 2) * perpX,
+                y: p1.y - arrowLength * unitY + (arrowWidth / 2) * perpY
+            };
+            const rawP3 = {
+                x: p1.x - arrowLength * unitX - (arrowWidth / 2) * perpX,
+                y: p1.y - arrowLength * unitY - (arrowWidth / 2) * perpY
+            };
+
+            // Slightly rotate the base for aesthetics
+            const baseRotation = -9;
+            p2 = rotatePoint(rawP2.x, rawP2.y, p1.x, p1.y, baseRotation);
+            p3 = rotatePoint(rawP3.x, rawP3.y, p1.x, p1.y, baseRotation);
+        }
 
         // STRAIGHT EDGES
-        if (!d.curved) {
+        else if (!d.curved) {
             // Calculate horizontal and vertical distance between target and source nodes
             // (dx, dy) -> Direction vector  (source -> target)
             const dx = d.target.x - d.source.x;
