@@ -20,7 +20,8 @@ let graphState = {
     // Current Selection of rendered DOM elements (Used to update positions, color, etc)
     nodeSelection: null,        // Current <circle> selections (DOM)
     linkSelection: null,        // Current <line> selections (DOM)
-    labelSelection: null,       // Current <text> selections (DOM)
+    labelSelection: null,       // Current node <text> selections (DOM)
+    weightSelection: null,      // Current weight <text> selections (DOM)
     
     // Active graph data
     // Node Format : { id: "A", group: "G1", x: 100, y:100, vx: 200, vy: 200 }
@@ -255,13 +256,25 @@ function validateEdges(text, validNodes) {
         // Separating source and target
         const parts = line.split(/\s+/);
 
-        // Must be exactly 2 values
-        if (parts.length !== 2) {
-            edgeErrors.push({ line: i, reason: 'Edge must have exactly 2 nodes' });
-            return;
+        // Weighted Edges
+        if (graphState.isWeighted) {
+            // Must be exactly 2 (or 3, with an optional weight)
+            if (parts.length < 2 || parts.length > 3) {
+                edgeErrors.push({ line: i, reason: 'Edge must have 2 nodes with an optional weight' });
+                return;
+            }
+        } 
+        // Unweighted Edges
+        else {
+            // Must be exactly 2 values
+            if (parts.length !== 2) {
+                edgeErrors.push({ line: i, reason: 'Edge must have exactly 2 nodes' });
+                return;
+            }
         }
 
-        const [u, v] = parts;
+        // wRaw is undefined, if weight is not given
+        const [u, v, wRaw] = parts;
 
         // Check valid names
         if (!validRegex.test(u) || !validRegex.test(v)) {
@@ -273,6 +286,16 @@ function validateEdges(text, validNodes) {
         if (!validNodes.includes(u) || !validNodes.includes(v)) {
             edgeErrors.push({ line: i, reason: 'Node in edge does not exist' });
             return;
+        }
+        
+        // Parsing weight (if given, else default 1)
+        let weight = 1;
+        if (wRaw !== undefined) {
+            weight = Number(wRaw);
+            if (isNaN(weight)) {
+                edgeErrors.push({ line: i, reason: 'Invalid weight (must be a number)' });
+                return;
+            }
         }
 
         // Handle duplicate edges
@@ -291,7 +314,8 @@ function validateEdges(text, validNodes) {
 
         seenEdges.add(key);
         // Add valid edge to edges
-        edges.push([u, v]); 
+        edges.push([u, v, weight]); 
+
     });
 
     return {
@@ -310,10 +334,10 @@ function buildAdjacencyList(validNodes, validEdges) {
     });
 
     // Fill neighbors from validEdges
-    validEdges.forEach(([u, v]) => {
-        graph[u].push(v);
+    validEdges.forEach(([u, v, w]) => {
+        graph[u].push({node: v, weight: w});
         if (!graphState.isDirected) {
-            graph[v].push(u);  // Undirected graph
+            graph[v].push({node: u, weight: w});  // Undirected graph
         }
     });
 
@@ -356,8 +380,8 @@ function assignGroups(validNodes, graph) {
 
     // Union all edges
     for (const u of validNodes) {
-        for (const v of graph[u]) {
-            union(u, v);
+        for (const neighbor of graph[u]) {
+            union(u, neighbor.node);
         }
     }
 
@@ -374,37 +398,34 @@ function assignGroups(validNodes, graph) {
 }
 
 // Formatting Edges
-// {source, target, edgevalue, curved, direction(if curved)}
 function formatEdges(validEdges) {
-    const edgeMap = new Map();
-
-    // First pass: record all edge keys
-    for (const [source, target] of validEdges) {
-        const key = `${source}->${target}`;
-        edgeMap.set(key, { source, target });
-    }
-
+    // Each edge is unique, even if both directions exist
+    const edgePairs = new Set();
     const result = [];
 
-    for (const [source, target] of validEdges) {
+    for (const [source, target, w] of validEdges) {
+        let curved = false;
+        let direction = 0;
+
+        // If the reverse edge exists, make both curved
         const reverseKey = `${target}->${source}`;
-        const isBidirectional = edgeMap.has(reverseKey);
-
-        // Prevent duplicate reverse edges
-        if (isBidirectional && source > target) continue;
-
-        if (isBidirectional) {
-            result.push({ source, target, value: 1, curved: true, direction: 1 });
-            result.push({ source: target, target: source, value: 1, curved: true, direction: -1 });
-        } else {
-            result.push({ source, target, value: 1, curved: false });
+        const key = `${source}->${target}`;
+        if (edgePairs.has(reverseKey)) {
+            curved = true;
+            direction = 1;
+            // Update the previous edge to be curved too
+            const prev = result.find(e => e.source === target && e.target === source);
+            if (prev) {
+                prev.curved = true;
+                prev.direction = -1;
+            }
         }
+        edgePairs.add(key);
+        result.push({ source, target, value: w, curved, direction });
     }
 
     return result;
 }
-
-
 
 
 
@@ -1154,6 +1175,68 @@ function updateLinkPaths(link) {
 
 
 
+// Finding the position of the weighted label for straight edegs, curved edges and self loops
+function getEdgeWeightPos(d) {
+    // Self-loop
+    if (d.source.id === d.target.id) {
+        const loopRadius = 7.5;
+        const loopOffset = 7.5;
+        const cx = d.source.x;
+        const cy = d.source.y;
+        const angle = d.loopAngle ?? -Math.PI / 2;
+
+        // Position for the weight: move loopOffset + loopRadius in the angle direction
+        return {
+            x: cx + (loopOffset + loopRadius) * Math.cos(angle),
+            y: cy + (loopOffset + loopRadius) * Math.sin(angle)
+        };
+    }
+
+    // Curved edge
+    if (d.curved) {
+        const { x: x1, y: y1 } = d.source;
+        const { x: x2, y: y2 } = d.target;
+        const dx = x2 - x1;
+        const dy = y2 - y1;
+        const dr = Math.sqrt(dx * dx + dy * dy) / 1.5;    // Curve Radius
+
+        // Rebuild the same path string as updateLinkPaths
+        const pathStr = `M${x1},${y1} A${dr},${dr} 0 0,1 ${x2},${y2}`;
+
+        // Create a temp path element to measure
+        const tempPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        tempPath.setAttribute("d", pathStr);
+
+        // Going to the midpoint 
+        const pathLength = tempPath.getTotalLength();
+        const midpoint = tempPath.getPointAtLength(pathLength / 2);
+
+        return { x: midpoint.x , y: midpoint.y };
+    }
+    
+
+
+    
+    // Straight edge
+    return {
+        x: (d.source.x + d.target.x) / 2,
+        y: (d.source.y + d.target.y) / 2
+    };
+}
+
+
+// Helps updating the weight label positions
+function updateWeightLabels() {
+    if (graphState.weightSelection) {
+        graphState.weightSelection
+            .attr("x", d => getEdgeWeightPos(d).x)
+            .attr("y", d => getEdgeWeightPos(d).y)
+            .text(d => graphState.isWeighted ? (d.value ?? 1) : "")  // update text dynamically
+            .style("display", graphState.isWeighted ? "block" : "none");  // Hide dynamically
+    }
+}
+
+
 // ===================================================
 // [10] GRAPH RENDERING ENGINE
 // ---------------------------------------------------
@@ -1278,6 +1361,23 @@ function renderGraph (data, shouldZoom, groupDisplayMap) {
         .attr("class", "node-label")
         .attr("dy", 2)
         .text(d => d.id);
+
+    // Weight labels
+    const weight = graphState.linkLayer
+        .selectAll(".edge-weight")
+        .data(links, d => `${d.source.id}-${d.target.id}`)
+        .join("text")
+        .attr("class", "edge-weight")
+        .attr("dy", 1.5)
+        .attr("text-anchor", "middle")
+        .style("font-size", "4px")
+        .style("fill", "#ffffffff")
+        .style("pointer-events", "none")
+        .text(d => graphState.isWeighted ? (d.value ?? 1) : "");
+
+    graphState.weightSelection = weight;
+    // Static update for weight labels
+    updateWeightLabels();
         
 
     // DRAGGING 
@@ -1326,6 +1426,9 @@ function renderGraph (data, shouldZoom, groupDisplayMap) {
 
         // Update arrow position and orientation (dynamic update)
         updateArrowheads(arrow);
+
+        // Update weights position (dynamic update)
+        updateWeightLabels();
 
         
         // Wait for 20 ticks and them zoom in to fit to scale
