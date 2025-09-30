@@ -22,6 +22,7 @@ let graphState = {
     linkSelection: null,        // Current <line> selections (DOM)
     labelSelection: null,       // Current node <text> selections (DOM)
     weightSelection: null,      // Current weight <text> selections (DOM)
+    weightBgSelection: null,    // Current weight background <circle> selections (DOM)
     
     // Active graph data
     // Node Format : { id: "A", group: "G1", x: 100, y:100, vx: 200, vy: 200 }
@@ -1233,6 +1234,14 @@ function updateWeightLabels() {
             .attr("y", d => getEdgeWeightPos(d).y)
             .text(d => graphState.isWeighted ? (d.value ?? 1) : "")  // update text dynamically
             .style("display", graphState.isWeighted ? "block" : "none");  // Hide dynamically
+
+        // Update background circle position
+        if (graphState.weightBgSelection) {
+            graphState.weightBgSelection
+                .attr("cx", d => getEdgeWeightPos(d).x)
+                .attr("cy", d => getEdgeWeightPos(d).y)
+                .style("display", graphState.isWeighted ? "block" : "none");
+        }
     }
 }
 
@@ -1362,6 +1371,18 @@ function renderGraph (data, shouldZoom, groupDisplayMap) {
         .attr("dy", 2)
         .text(d => d.id);
 
+    // Background circle for edge weights
+    const weightBg = graphState.linkLayer
+        .selectAll(".edge-weight-bg")
+        .data(links, d => `${d.source.id}-${d.target.id}`)
+        .join("circle")
+        .attr("class", "edge-weight-bg")
+        .attr("r", 3) // radius, adjust as needed
+        .style("fill", "#1b1a25") // same as background
+        .style("pointer-events", "none"); // ignore mouse events
+
+    graphState.weightBgSelection = weightBg;
+
     // Weight labels
     const weight = graphState.linkLayer
         .selectAll(".edge-weight")
@@ -1378,6 +1399,7 @@ function renderGraph (data, shouldZoom, groupDisplayMap) {
     graphState.weightSelection = weight;
     // Static update for weight labels
     updateWeightLabels();
+
         
 
     // DRAGGING 
