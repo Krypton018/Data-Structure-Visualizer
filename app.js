@@ -23,6 +23,7 @@ let graphState = {
     labelSelection: null,       // Current node <text> selections (DOM)
     weightSelection: null,      // Current weight <text> selections (DOM)
     weightBgSelection: null,    // Current weight background <circle> selections (DOM)
+    lastHighlightedNode: null,  // Used for keeping track of last highlihgted node
     
     // Active graph data
     // Node Format : { id: "A", group: "G1", x: 100, y:100, vx: 200, vy: 200 }
@@ -725,7 +726,7 @@ function addTooltipBehavior(selection, color, tooltip, groupDisplayMap) {
                     .style("top", `${event.pageY + 12}px`)
                     .style("opacity", 1)
                     .style("transform", "translateY(0)");        
-            }, 450);
+            }, 600);
         })
         .on("mousemove", (event) => {
             tooltip
@@ -1245,6 +1246,77 @@ function updateWeightLabels() {
     }
 }
 
+// Build adjacency: nodeId -> Set of neighbors
+function buildAdjacency(links) {
+    const adjacency = new Map();
+    links.forEach(l => {
+        const s = l.source.id || l.source;
+        const t = l.target.id || l.target;
+
+        // Directed Edges
+        if (graphState.isDirected) {
+            if (!adjacency.has(s)) adjacency.set(s, new Set());
+            adjacency.get(s).add(t);
+        }
+
+        // Undirected Edges
+        else {
+            if (!adjacency.has(s)) adjacency.set(s, new Set());
+            if (!adjacency.has(t)) adjacency.set(t, new Set());
+            adjacency.get(s).add(t);
+            adjacency.get(t).add(s);
+        }
+    });
+    return adjacency;
+}
+
+// Apply highlight on one node + its neighbors
+function applyHighlight(targetId, adjacency, graphState) {
+    const neighbors = adjacency.get(targetId) || new Set();
+    const highlightDuration = 200; // milliseconds
+    const isDirected = graphState.isDirected;
+
+    // Nodes and node labels
+    graphState.nodeSelection.transition().duration(highlightDuration)
+        .style("opacity", d => (d.id === targetId || neighbors.has(d.id)) ? 1 : 0.1);
+
+    graphState.labelSelection.transition().duration(highlightDuration)
+        .style("opacity", d => (d.id === targetId || neighbors.has(d.id)) ? 1 : 0.1);
+
+
+    // Link, arrow, weight highlight
+    const linkOpacity = d => {
+        if (isDirected) return (d.source.id === targetId) ? 1 : 0.1;        // only outgoing
+        else return (d.source.id === targetId || d.target.id === targetId) ? 1 : 0.1; // undirected
+    };
+
+
+    graphState.linkSelection.transition().duration(highlightDuration)
+        .style("opacity", linkOpacity);
+
+    graphState.linkLayer.selectAll(".edge-arrow").transition().duration(highlightDuration)
+        .style("opacity", linkOpacity);
+
+    graphState.weightSelection.transition().duration(highlightDuration)
+        .style("opacity", linkOpacity);
+
+    graphState.weightBgSelection.transition().duration(highlightDuration)
+        .style("opacity", linkOpacity);
+}
+
+// Reset highlight → everything visible
+function resetHighlight(graphState) {
+    let unhighlightDuration = 200;  // milliseconds
+    graphState.nodeSelection.transition().duration(unhighlightDuration).style("opacity", 1);
+    graphState.labelSelection.transition().duration(unhighlightDuration).style("opacity", 1);
+    graphState.linkSelection.transition().duration(unhighlightDuration).style("opacity", 1);
+    graphState.linkLayer.selectAll(".edge-arrow").transition().duration(unhighlightDuration).style("opacity", 1);
+    graphState.weightSelection.transition().duration(unhighlightDuration).style("opacity", 1);
+    graphState.weightBgSelection.transition().duration(unhighlightDuration).style("opacity", 1);
+}
+
+
+
 
 // ===================================================
 // [10] GRAPH RENDERING ENGINE
@@ -1256,6 +1328,7 @@ function updateWeightLabels() {
 // ===================================================
 
 let directedTrigger = false;
+let highlightedTrigger = false;
 // Rendering the graph
 function renderGraph (data, shouldZoom, groupDisplayMap) {
 
@@ -1469,6 +1542,33 @@ function renderGraph (data, shouldZoom, groupDisplayMap) {
     svg.on("dblclick.zoom", null);
     svg.on("dblclick.zoomToFit", () => zoomToFit(svg, nodes, width, height, zoom));
     
+
+    // Build adjacency once per render
+    const adjacency = buildAdjacency(links);
+
+    // Highlight on dblclick (node or label)
+    node.on("dblclick", (event, d) => {
+        highlightedTrigger = true;
+        event.stopPropagation();
+        applyHighlight(d.id, adjacency, graphState);
+        graphState.lastHighlightedNode = d.id;
+    });
+
+    labels.on("dblclick", (event, d) => {
+        highlightedTrigger = true;
+        event.stopPropagation();
+        applyHighlight(d.id, adjacency, graphState);
+        graphState.lastHighlightedNode = d.id;
+    });
+
+    // Reset on background click
+    svg.on("click.resetHighlight", (event) => {
+        if (event.target === svg.node()) {    // If clicked on the underlying svg
+            highlightedTrigger = false;
+            resetHighlight(graphState);
+            graphState.lastHighlightedNode = null;
+        }
+    });
     
 
     // Updating graph state
@@ -1480,6 +1580,12 @@ function renderGraph (data, shouldZoom, groupDisplayMap) {
     graphState.currentNodes = nodes;
     graphState.currentLinks = links;
 
+
+
+    // Keeping highlights preserved   (After all graph updation, so it doesn't get overriden)
+    if (highlightedTrigger && graphState.lastHighlightedNode != null) {
+        applyHighlight(graphState.lastHighlightedNode, adjacency, graphState);
+    }
 };
 
 
