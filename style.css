@@ -261,4 +261,5 @@ main {
     user-select: none;
     fill: white;
     cursor: pointer;
+    pointer-events: none;  /* Tooltip won't be affected */
 }

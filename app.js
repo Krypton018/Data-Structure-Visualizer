@@ -6,7 +6,7 @@
 // ===================================================
 
 // Tracks the state of the graph visualization
-let graphState = {
+const graphState = {
     svg: null,                  // Main SVG Element
     container: null,            // Group that holds all elements
     simulation: null,           // Force Simulation Instance
@@ -64,7 +64,7 @@ let colorIndexCounter = 0;       // Track number of groups
 // initializes Ace themes and modes.
 // ===================================================
 
-// Notes Input Editor
+// Nodes Input Editor
 const nodesEditor = ace.edit("nodes-input");
 nodesEditor.setTheme("ace/theme/monokai");
 nodesEditor.session.setMode("ace/mod/plain_text");
@@ -1247,6 +1247,7 @@ function updateWeightLabels() {
 }
 
 // Build adjacency: nodeId -> Set of neighbors
+// (For highlight functions)
 function buildAdjacency(links) {
     const adjacency = new Map();
     links.forEach(l => {
@@ -1304,7 +1305,7 @@ function applyHighlight(targetId, adjacency, graphState) {
         .style("opacity", linkOpacity);
 }
 
-// Reset highlight → everything visible
+// Reset highlight (everything visible)
 function resetHighlight(graphState) {
     let unhighlightDuration = 200;  // milliseconds
     graphState.nodeSelection.transition().duration(unhighlightDuration).style("opacity", 1);
@@ -1495,8 +1496,6 @@ function renderGraph (data, shouldZoom, groupDisplayMap) {
 
     // Tooltip Animation
     addTooltipBehavior(node, color, tooltip, groupDisplayMap);
-    addTooltipBehavior(labels, color, tooltip, groupDisplayMap);
-
     
 
     // Updating on tick (animation frame)
