@@ -13,6 +13,11 @@
     <header>
         <div class="heading">
             <h1>Data Structure Visualizer</h1>
+            <div class="mode-toggle">
+                <div class="slider"></div>
+                <button class="tab active">Graph</button>
+                <button class="tab">Tree</button>
+            </div>
         </div>
     </header>
 
@@ -45,5 +50,6 @@
 
     <script src="https://d3js.org/d3.v7.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.43.0/ace.js"></script>
-    <script src="app.js"></script>
+    <!-- ES6 Imports Exports for Modularization -->
+    <script type="module" src="js/app.js"></script>
 </html>

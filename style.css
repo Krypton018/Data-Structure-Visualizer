@@ -231,7 +231,7 @@ main {
 }
 
 /* Drawing Area */
-#graph-svg {
+#area-svg {
     background-color: #1b1a25;
     width: 100%;
     height: 100%;
@@ -262,4 +262,49 @@ main {
     fill: white;
     cursor: pointer;
     pointer-events: none;  /* Tooltip won't be affected */
+}
+
+
+
+
+/* Tree Graph Toggle */
+.mode-toggle {
+    position: absolute;  /* absolute inside heading */
+    right: 30px;
+    display: flex;
+    width: 140px;       /* adjust size */
+    height: 40px;
+    border-radius: 15px;
+    background: #555;      /* default background */
+    outline: 4px solid #252525;
+    overflow: hidden;
+    cursor: pointer;
+    user-select: none;
+}
+
+.mode-toggle .slider {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 50%;         /* half width of container */
+    height: 100%;
+    background: #46f293; /* green highlight */
+    border-radius: 15px;
+    transition: transform 0.3s ease;
+    z-index: 0;
+}
+
+.mode-toggle .tab {
+    flex: 1;
+    border: none;
+    background: transparent;
+    font-weight: 500;
+    font-size: 16px;
+    font-weight: 500;
+    z-index: 1;
+    color: white;
+}
+
+.mode-toggle .tab.active {
+    color: black;
 }
